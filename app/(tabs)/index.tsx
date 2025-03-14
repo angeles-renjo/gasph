@@ -1,74 +1,238 @@
-import { Image, StyleSheet, Platform } from 'react-native';
+// app/(tabs)/index.tsx - Prices Tab with direct Supabase query
+import React, { useState, useCallback, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  RefreshControl,
+  TouchableOpacity,
+} from 'react-native';
+import { PriceCard } from '@/components/price/PriceCard';
+import { LoadingIndicator } from '@/components/common/LoadingIndicator';
+import { ErrorDisplay } from '@/components/common/ErrorDisplay';
+import { EmptyState } from '@/components/common/EmptyState';
+import { FUEL_TYPES } from '@/utils/constants';
+import { FuelPrice } from '@/core/models/FuelPrice';
+import { sortPricesByPrice } from '@/utils/sorting';
+import { filterPricesByFuelType } from '@/utils/filtering';
+import { supabase } from '@/utils/supabase';
 
-import { HelloWave } from '@/components/HelloWave';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+export default function PricesScreen() {
+  const [selectedFuelType, setSelectedFuelType] = useState<string>(
+    FUEL_TYPES[0]
+  );
+  const [allPrices, setAllPrices] = useState<FuelPrice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
+  // Fetch prices directly from Supabase
+  const fetchPrices = useCallback(async () => {
+    console.log('Fetching prices directly from Supabase...');
+    try {
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from('fuel_prices')
+        .select('*')
+        .order('week_of', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching prices:', error);
+        setError(error.message);
+        return;
+      }
+
+      // Map the data to your model
+      const mappedData: FuelPrice[] = (data || []).map((item) => ({
+        id: item.id,
+        area: item.area,
+        brand: item.brand,
+        fuelType: item.fuel_type,
+        minPrice: item.min_price,
+        maxPrice: item.max_price,
+        commonPrice: item.common_price,
+        weekOf: new Date(item.week_of),
+        updatedAt: new Date(item.updated_at),
+      }));
+
+      console.log(`Fetched ${mappedData.length} prices from Supabase`);
+      setAllPrices(mappedData);
+      setError(null);
+    } catch (err) {
+      console.error('Exception during fetch:', err);
+      setError(err instanceof Error ? err.message : 'Unknown error occurred');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Load prices on component mount
+  // Add this to your PricesScreen component
+  useEffect(() => {
+    const checkFuelTypes = async () => {
+      try {
+        console.log('Checking database fuel types...');
+        const { data } = await supabase.from('fuel_prices').select('fuel_type');
+
+        if (data && data.length > 0) {
+          // Get unique fuel types from the database
+          const dbFuelTypes = [...new Set(data.map((item) => item.fuel_type))];
+          console.log('Fuel types in database:', dbFuelTypes);
+          console.log('Fuel types in constants:', FUEL_TYPES);
+        }
+      } catch (err) {
+        console.error('Error checking fuel types:', err);
+      }
+    };
+
+    checkFuelTypes();
+  }, []);
+
+  // Filter prices by the selected fuel type
+  const filteredPrices = filterPricesByFuelType(allPrices, selectedFuelType);
+
+  // Sort prices by price (ascending)
+  const sortedPrices = sortPricesByPrice(filteredPrices, true);
+
+  // Pull to refresh function
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchPrices();
+    } catch (err) {
+      console.error('Refresh error:', err);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchPrices]);
+
+  const renderFuelTypeFilter = () => {
+    return (
+      <View style={styles.filterContainer}>
+        <Text style={styles.filterLabel}>Fuel Type:</Text>
+        <FlatList
+          horizontal
+          data={FUEL_TYPES}
+          keyExtractor={(item) => item}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[
+                styles.filterItem,
+                selectedFuelType === item && styles.filterItemSelected,
+              ]}
+              onPress={() => setSelectedFuelType(item)}
+            >
+              <Text
+                style={[
+                  styles.filterItemText,
+                  selectedFuelType === item && styles.filterItemTextSelected,
+                ]}
+              >
+                {item}
+              </Text>
+            </TouchableOpacity>
+          )}
+          showsHorizontalScrollIndicator={false}
         />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12'
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-        <ThemedText>
-          Tap the Explore tab to learn more about what's included in this starter app.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          When you're ready, run{' '}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+      </View>
+    );
+  };
+
+  const renderContent = () => {
+    if (loading) {
+      return <LoadingIndicator message='Loading fuel prices...' />;
+    }
+
+    if (error) {
+      return (
+        <ErrorDisplay
+          message={`Failed to load fuel prices: ${error}`}
+          onRetry={onRefresh}
+        />
+      );
+    }
+
+    if (sortedPrices.length === 0) {
+      return (
+        <EmptyState
+          title='No Prices Found'
+          message={`We couldn't find any ${selectedFuelType} prices. Try selecting a different fuel type.`}
+        />
+      );
+    }
+
+    return (
+      <FlatList
+        data={sortedPrices}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => <PriceCard price={item} />}
+        contentContainerStyle={styles.listContainer}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      />
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Latest Fuel Prices</Text>
+      <Text style={styles.debug}>
+        Found {allPrices.length} total prices, {sortedPrices.length} matching{' '}
+        {selectedFuelType}
+      </Text>
+      {renderFuelTypeFilter()}
+      {renderContent()}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
   },
-  stepContainer: {
-    gap: 8,
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    margin: 16,
     marginBottom: 8,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  debug: {
+    fontSize: 12,
+    color: '#666',
+    marginHorizontal: 16,
+    marginBottom: 8,
+  },
+  filterContainer: {
+    margin: 16,
+    marginTop: 0,
+  },
+  filterLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  filterItem: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginRight: 8,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 16,
+  },
+  filterItemSelected: {
+    backgroundColor: '#2a9d8f',
+  },
+  filterItemText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  filterItemTextSelected: {
+    color: '#fff',
+  },
+  listContainer: {
+    paddingBottom: 16,
   },
 });

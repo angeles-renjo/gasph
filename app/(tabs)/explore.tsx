@@ -1,109 +1,167 @@
-import { StyleSheet, Image, Platform } from 'react-native';
+// app/(tabs)/explore.tsx - Explore Tab
+import React, { useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  RefreshControl,
+  TextInput,
+} from 'react-native';
+import { useNearbyStations } from '@/hooks/useStationService';
+import { StationCard } from '@/components/station/StationCard';
+import { LoadingIndicator } from '@/components/common/LoadingIndicator';
+import { ErrorDisplay } from '@/components/common/ErrorDisplay';
+import { EmptyState } from '@/components/common/EmptyState';
+import { MaterialIcons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 
-import { Collapsible } from '@/components/Collapsible';
-import { ExternalLink } from '@/components/ExternalLink';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
-import { IconSymbol } from '@/components/ui/IconSymbol';
+export default function ExploreScreen() {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const { stations, loading, error } = useNearbyStations(5); // 5 km radius
 
-export default function TabTwoScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
+  // Pull to refresh function
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+
+    // Wait a bit and then stop refreshing
+    // In a real app, you'd re-fetch the data
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
+  }, []);
+
+  const renderContent = () => {
+    if (loading) {
+      return <LoadingIndicator message='Finding nearby gas stations...' />;
+    }
+
+    if (error) {
+      return (
+        <ErrorDisplay
+          message='Failed to load nearby stations. Please check your location permissions and try again.'
+          onRetry={onRefresh}
         />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Explore</ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image source={require('@/assets/images/react-logo.png')} style={{ alignSelf: 'center' }} />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Custom fonts">
-        <ThemedText>
-          Open <ThemedText type="defaultSemiBold">app/_layout.tsx</ThemedText> to see how to load{' '}
-          <ThemedText style={{ fontFamily: 'SpaceMono' }}>
-            custom fonts such as this one.
-          </ThemedText>
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/versions/latest/sdk/font">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user's current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful <ThemedText type="defaultSemiBold">react-native-reanimated</ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+      );
+    }
+
+    if (stations.length === 0) {
+      return (
+        <EmptyState
+          title='No Stations Found'
+          message="We couldn't find any gas stations nearby. Try increasing the search radius or try again later."
+        />
+      );
+    }
+
+    const filteredStations = searchQuery
+      ? stations.filter(
+          (station) =>
+            station.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            station.address.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            station.brand.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      : stations;
+
+    if (filteredStations.length === 0) {
+      return (
+        <EmptyState
+          title='No Matches'
+          message={`No stations match your search for "${searchQuery}". Try a different search term.`}
+        />
+      );
+    }
+
+    return (
+      <FlatList
+        data={filteredStations}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <StationCard
+            station={item}
+            distance={item.distance}
+            onPress={() => router.push(`/station/${item.id}`)}
+          />
+        )}
+        contentContainerStyle={styles.listContainer}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      />
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>Nearby Gas Stations</Text>
+
+      <View style={styles.searchContainer}>
+        <MaterialIcons
+          name='search'
+          size={24}
+          color='#999'
+          style={styles.searchIcon}
+        />
+        <TextInput
+          style={styles.searchInput}
+          placeholder='Search by name, brand, or address'
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+        {searchQuery ? (
+          <MaterialIcons
+            name='clear'
+            size={24}
+            color='#999'
+            style={styles.clearIcon}
+            onPress={() => setSearchQuery('')}
+          />
+        ) : null}
+      </View>
+
+      {renderContent()}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5',
   },
-  titleContainer: {
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    margin: 16,
+    marginBottom: 8,
+  },
+  searchContainer: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    margin: 16,
+    marginTop: 0,
+    padding: 8,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  searchIcon: {
+    marginHorizontal: 8,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 8,
+    fontSize: 16,
+  },
+  clearIcon: {
+    marginHorizontal: 8,
+  },
+  listContainer: {
+    paddingBottom: 16,
   },
 });

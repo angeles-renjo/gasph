@@ -8,6 +8,12 @@ import TabBarBackground from '@/components/ui/TabBarBackground';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
+// We need to update the IconSymbol MAPPING in components/ui/IconSymbol.tsx to include these:
+// 'attach-money': 'attach-money',
+// 'explore': 'explore',
+// 'map': 'map',
+// 'person': 'person',
+
 export default function TabLayout() {
   const colorScheme = useColorScheme();
 
@@ -25,19 +31,42 @@ export default function TabLayout() {
           },
           default: {},
         }),
-      }}>
+      }}
+    >
       <Tabs.Screen
-        name="index"
+        name='index'
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          title: 'Prices',
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name='map' color={color} />
+          ),
         }}
       />
       <Tabs.Screen
-        name="explore"
+        name='explore'
         options={{
           title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name='map' color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name='map'
+        options={{
+          title: 'Map',
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name='map' color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name='profile'
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name='person' color={color} />
+          ),
         }}
       />
     </Tabs>
