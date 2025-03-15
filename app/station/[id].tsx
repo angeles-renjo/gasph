@@ -1,16 +1,75 @@
 // app/station/[id].tsx - Station Details Screen
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  ActivityIndicator,
+} from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useStationById } from '@/hooks/useStationService';
 import { LoadingIndicator } from '@/components/common/LoadingIndicator';
 import { ErrorDisplay } from '@/components/common/ErrorDisplay';
 import { MaterialIcons } from '@expo/vector-icons';
-import { formatOperatingHours } from '@/utils/formatters';
+import {
+  formatOperatingHours,
+  formatCurrency,
+  formatDate,
+} from '@/utils/formatters';
+import { supabase } from '@/utils/supabase';
 
 export default function StationDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { station, loading, error } = useStationById(id);
+
+  // State for fuel prices
+  const [fuelPrices, setFuelPrices] = useState<any[]>([]);
+  const [priceDate, setPriceDate] = useState<string | null>(null);
+  const [loadingPrices, setLoadingPrices] = useState(false);
+
+  // Load all fuel prices for this station
+  useEffect(() => {
+    const loadPrices = async () => {
+      if (!station) return;
+
+      setLoadingPrices(true);
+      try {
+        // Get latest week_of date
+        const { data: latestWeek } = await supabase
+          .from('fuel_prices')
+          .select('week_of')
+          .order('week_of', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (!latestWeek) {
+          setLoadingPrices(false);
+          return;
+        }
+
+        setPriceDate(formatDate(latestWeek.week_of));
+
+        // Get prices for this station's brand and city
+        const { data } = await supabase
+          .from('fuel_prices')
+          .select('*')
+          .eq('week_of', latestWeek.week_of)
+          .eq('area', station.city)
+          .ilike('brand', station.brand)
+          .order('fuel_type');
+
+        setFuelPrices(data || []);
+      } catch (error) {
+        console.error('Error loading fuel prices:', error);
+      } finally {
+        setLoadingPrices(false);
+      }
+    };
+
+    loadPrices();
+  }, [station]);
 
   if (loading) {
     return <LoadingIndicator message='Loading station details...' />;
@@ -43,11 +102,11 @@ export default function StationDetailsScreen() {
 
   const getStatusColor = () => {
     switch (station.status) {
-      case 'operational':
+      case 'active':
         return '#4caf50';
-      case 'temporarily_closed':
+      case 'temporary_closed':
         return '#ff9800';
-      case 'closed':
+      case 'permanently_closed':
         return '#f44336';
       default:
         return '#666';
@@ -86,11 +145,38 @@ export default function StationDetailsScreen() {
         {renderAmenities()}
       </View>
 
+      {/* Fuel Price Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Price Information</Text>
-        <Text style={styles.noData}>
-          Price data for this station is coming soon.
-        </Text>
+        <Text style={styles.sectionTitle}>Fuel Prices</Text>
+        {loadingPrices ? (
+          <ActivityIndicator size='small' color='#2a9d8f' />
+        ) : fuelPrices.length > 0 ? (
+          <>
+            <Text style={styles.priceDate}>
+              As of {priceDate || 'latest data'}
+            </Text>
+            <View style={styles.priceList}>
+              {fuelPrices.map((price) => (
+                <View key={price.id} style={styles.priceRow}>
+                  <Text style={styles.fuelType}>{price.fuel_type}</Text>
+                  <View style={styles.priceDetails}>
+                    <Text style={styles.commonPrice}>
+                      {formatCurrency(price.common_price)}
+                    </Text>
+                    <Text style={styles.priceRange}>
+                      Range: {formatCurrency(price.min_price)} -{' '}
+                      {formatCurrency(price.max_price)}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </>
+        ) : (
+          <Text style={styles.noData}>
+            No price information available for this station.
+          </Text>
+        )}
       </View>
 
       <View style={styles.actionButtons}>
@@ -211,5 +297,39 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     marginLeft: 8,
+  },
+  // Fuel price styles
+  priceDate: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+    marginBottom: 12,
+  },
+  priceList: {
+    marginTop: 8,
+  },
+  priceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  fuelType: {
+    fontSize: 16,
+    flex: 1,
+  },
+  priceDetails: {
+    flex: 1,
+    alignItems: 'flex-end',
+  },
+  commonPrice: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2a9d8f',
+  },
+  priceRange: {
+    fontSize: 12,
+    color: '#666',
   },
 });

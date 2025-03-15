@@ -4,11 +4,17 @@ import { useServices } from '@/core/ServiceLocator';
 import { IPriceService } from '@/core/interfaces/IPriceService';
 import { IStationService } from '@/core/interfaces/IStationService';
 import { ILocationService } from '@/core/interfaces/ILocationService';
+import { IGooglePlacesService } from '@/core/interfaces/IGooglePlacesService';
+import { IGasStationImportService } from '@/core/interfaces/IGasStationImportService';
+import { IGasStationRepository } from '@/core/interfaces/IGasStationRepository';
 
 interface ServiceContextType {
   priceService: IPriceService;
   stationService: IStationService;
   locationService: ILocationService;
+  googlePlacesService: IGooglePlacesService;
+  gasStationImportService: IGasStationImportService;
+  gasStationRepository: IGasStationRepository;
 }
 
 const ServiceContext = createContext<ServiceContextType | undefined>(undefined);

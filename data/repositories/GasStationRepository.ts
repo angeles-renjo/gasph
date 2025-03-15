@@ -223,6 +223,195 @@ export class GasStationRepository
     return (data as GasStation[]) || [];
   }
 
+  async findById(id: string): Promise<GasStation | null> {
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      console.error(`Error fetching ${this.tableName} by ID:`, error);
+      throw new Error(`Failed to fetch ${this.tableName}`);
+    }
+
+    return data;
+  }
+
+  async findAll(): Promise<GasStation[]> {
+    const { data, error } = await supabase.from(this.tableName).select('*');
+
+    if (error) {
+      console.error(`Error fetching all ${this.tableName}:`, error);
+      throw new Error(`Failed to fetch ${this.tableName} list`);
+    }
+
+    return data || [];
+  }
+
+  async findByFilter(filter: Partial<GasStation>): Promise<GasStation[]> {
+    let query = supabase.from(this.tableName).select('*');
+
+    // Apply each filter condition
+    Object.entries(filter).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        query = query.eq(key, value);
+      }
+    });
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error(`Error fetching ${this.tableName} with filter:`, error);
+      throw new Error(`Failed to filter ${this.tableName}`);
+    }
+
+    return data || [];
+  }
+
+  async create(item: Omit<GasStation, 'id'> | any): Promise<GasStation> {
+    try {
+      // If the item already matches the database schema (as from mapPlaceToDatabase),
+      // use it directly. Otherwise, the REST of your repository methods should convert
+      // from the GasStation model to database format
+
+      const { data, error } = await supabase
+        .from(this.tableName)
+        .insert(item)
+        .select()
+        .single();
+
+      if (error) {
+        console.error(`Error creating ${this.tableName}:`, error);
+        throw new Error(`Failed to create ${this.tableName}`);
+      }
+
+      // Convert database format back to GasStation model for the return value
+      const station = data as any;
+
+      // Check if coordinates is a string (PostGIS format) and convert if needed
+      if (typeof station.coordinates === 'string') {
+        // Extract lat/lng from PostGIS point format
+        const match = station.coordinates.match(/POINT\(([^ ]+) ([^)]+)\)/);
+        if (match) {
+          const lng = parseFloat(match[1]);
+          const lat = parseFloat(match[2]);
+          station.coordinates = { latitude: lat, longitude: lng };
+        }
+      }
+
+      return this.mapToGasStation(station);
+    } catch (error) {
+      console.error(`Error creating ${this.tableName}:`, error);
+      throw new Error(`Failed to create ${this.tableName}`);
+    }
+  }
+
+  // Helper method to map database row to GasStation model
+  private mapToGasStation(data: any): GasStation {
+    // Map all fields from database format to GasStation model
+    const station: GasStation = {
+      id: data.id,
+      name: data.name,
+      brand: data.brand,
+      address: data.address,
+      city: data.city,
+      coordinates: data.coordinates,
+      amenities: data.amenities || [],
+      operatingHours: data.operating_hours || {
+        open: '09:00',
+        close: '17:00',
+        is24Hours: false,
+        daysOpen: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+      },
+      status: data.status || 'active',
+    };
+
+    return station;
+  }
+
+  async update(id: string, item: Partial<GasStation>): Promise<GasStation> {
+    // Create a copy of the item to avoid modifying the original
+    const stationData = { ...item };
+
+    // Remove the distance property if it exists
+    if ('distance' in stationData) {
+      delete (stationData as any).distance;
+    }
+
+    const { data, error } = await supabase
+      .from(this.tableName)
+      .update(stationData)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error(`Error updating ${this.tableName}:`, error);
+      throw new Error(`Failed to update ${this.tableName}`);
+    }
+
+    return data;
+  }
+
+  async delete(id: string): Promise<void> {
+    const { error } = await supabase.from(this.tableName).delete().eq('id', id);
+
+    if (error) {
+      console.error(`Error deleting ${this.tableName}:`, error);
+      throw new Error(`Failed to delete ${this.tableName}`);
+    }
+  }
+
+  async findByCoordinates(
+    latitude: number,
+    longitude: number,
+    toleranceDegrees: number = 0.0005
+  ): Promise<GasStation[]> {
+    try {
+      // Try to use the PostGIS function first
+      try {
+        const { data, error } = await supabase.rpc('find_stations_near_point', {
+          lat: latitude,
+          lng: longitude,
+          distance_degrees: toleranceDegrees,
+        });
+
+        if (!error && data) {
+          return data as GasStation[];
+        }
+      } catch (rpcError) {
+        console.warn(
+          'PostGIS RPC failed, falling back to basic query:',
+          rpcError
+        );
+      }
+
+      // Fallback to basic coordinate query if RPC fails
+      const latMin = latitude - toleranceDegrees;
+      const latMax = latitude + toleranceDegrees;
+      const lngMin = longitude - toleranceDegrees;
+      const lngMax = longitude + toleranceDegrees;
+
+      const { data, error } = await supabase
+        .from(this.tableName)
+        .select('*')
+        .gte('coordinates->latitude', latMin)
+        .lte('coordinates->latitude', latMax)
+        .gte('coordinates->longitude', lngMin)
+        .lte('coordinates->longitude', lngMax);
+
+      if (error) {
+        throw error;
+      }
+
+      return (data as GasStation[]) || [];
+    } catch (error) {
+      console.error('Error finding stations by coordinates:', error);
+      throw new Error('Failed to find stations by coordinates');
+    }
+  }
+
   // Helper method to calculate distance between two coordinates (Haversine formula)
   private calculateDistance(from: Coordinates, to: Coordinates): number {
     const R = 6371; // Earth's radius in km

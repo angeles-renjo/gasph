@@ -1,8 +1,11 @@
 // src/components/station/StationCard.tsx
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { GasStation } from '@/core/models/GasStation';
 import { MaterialIcons } from '@expo/vector-icons';
+import { formatCurrency } from '@/utils/formatters';
+import { supabase } from '@/utils/supabase';
+import { ActivityIndicator } from 'react-native';
 
 interface StationCardProps {
   station: GasStation;
@@ -15,6 +18,57 @@ export const StationCard: React.FC<StationCardProps> = ({
   distance,
   onPress,
 }) => {
+  const [prices, setPrices] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Fetch prices for this station
+  useEffect(() => {
+    const fetchPrices = async () => {
+      if (!station) return;
+
+      setLoading(true);
+      try {
+        // Get latest week_of date
+        const { data: latestWeek } = await supabase
+          .from('fuel_prices')
+          .select('week_of')
+          .order('week_of', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (!latestWeek) {
+          setLoading(false);
+          return;
+        }
+
+        // Get prices for this station's brand and city
+        const { data } = await supabase
+          .from('fuel_prices')
+          .select('*')
+          .eq('week_of', latestWeek.week_of)
+          .eq('area', station.city)
+          .ilike('brand', station.brand)
+          .order('fuel_type');
+
+        // Get only the main fuel types
+        const mainFuels = (data || []).filter(
+          (price) =>
+            price.fuel_type === 'Gasoline (RON 95)' ||
+            price.fuel_type === 'Gasoline (RON 91)' ||
+            price.fuel_type === 'Diesel'
+        );
+
+        setPrices(mainFuels);
+      } catch (error) {
+        console.error('Error fetching prices:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPrices();
+  }, [station]);
+
   const formatDistance = (km?: number) => {
     if (km === undefined || km === null) return 'Unknown';
 
@@ -73,6 +127,29 @@ export const StationCard: React.FC<StationCardProps> = ({
 
       <Text style={styles.name}>{station.name}</Text>
       <Text style={styles.address}>{station.address}</Text>
+
+      {/* Price information section */}
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size='small' color='#2a9d8f' />
+          <Text style={styles.loadingText}>Loading prices...</Text>
+        </View>
+      ) : (
+        prices.length > 0 && (
+          <View style={styles.priceContainer}>
+            {prices.map((price) => (
+              <View key={price.id} style={styles.priceItem}>
+                <Text style={styles.fuelType}>
+                  {price.fuel_type.replace('Gasoline ', '')}
+                </Text>
+                <Text style={styles.price}>
+                  {formatCurrency(price.common_price)}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )
+      )}
 
       <View style={styles.footer}>
         <View style={styles.statusContainer}>
@@ -154,5 +231,38 @@ const styles = StyleSheet.create({
   amenityText: {
     fontSize: 12,
     color: '#00796b',
+  },
+  // Price section styles
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+  },
+  loadingText: {
+    fontSize: 12,
+    color: '#666',
+    marginLeft: 8,
+  },
+  priceContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 8,
+    marginBottom: 12,
+    padding: 8,
+    backgroundColor: '#f5f7fa',
+    borderRadius: 4,
+  },
+  priceItem: {
+    alignItems: 'center',
+  },
+  fuelType: {
+    fontSize: 12,
+    color: '#666',
+  },
+  price: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2a9d8f',
   },
 });
