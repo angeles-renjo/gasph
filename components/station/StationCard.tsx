@@ -15,8 +15,12 @@ export const StationCard: React.FC<StationCardProps> = ({
   distance,
   onPress,
 }) => {
-  const formatDistance = (km: number) => {
-    if (km < 1) {
+  const formatDistance = (km?: number) => {
+    if (km === undefined || km === null) return 'Unknown';
+
+    if (km < 0.1) {
+      return `${Math.round(km * 1000)} m`;
+    } else if (km < 1) {
       return `${(km * 1000).toFixed(0)} m`;
     }
     return `${km.toFixed(1)} km`;
@@ -47,12 +51,14 @@ export const StationCard: React.FC<StationCardProps> = ({
 
   const getStatusIcon = () => {
     switch (station.status) {
-      case 'operational':
+      case 'active':
         return <MaterialIcons name='check-circle' size={16} color='#4caf50' />;
-      case 'temporarily_closed':
+      case 'temporary_closed':
         return <MaterialIcons name='warning' size={16} color='#ff9800' />;
-      case 'closed':
+      case 'permanently_closed':
         return <MaterialIcons name='cancel' size={16} color='#f44336' />;
+      case 'inactive':
+        return <MaterialIcons name='cancel' size={16} color='#9e9e9e' />;
       default:
         return null;
     }
@@ -62,9 +68,7 @@ export const StationCard: React.FC<StationCardProps> = ({
     <Pressable style={styles.card} onPress={onPress}>
       <View style={styles.header}>
         <Text style={styles.brand}>{station.brand}</Text>
-        {distance !== undefined && (
-          <Text style={styles.distance}>{formatDistance(distance)}</Text>
-        )}
+        <Text style={styles.distance}>{formatDistance(station.distance)}</Text>
       </View>
 
       <Text style={styles.name}>{station.name}</Text>

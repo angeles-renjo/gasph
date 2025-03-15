@@ -74,13 +74,25 @@ export default function PricesScreen() {
     const checkFuelTypes = async () => {
       try {
         console.log('Checking database fuel types...');
+
+        // Add timeout
+        const timeoutId = setTimeout(() => {
+          console.log('Fuel type check timed out');
+          console.error('Database connection timeout');
+        }, 10000);
+
         const { data } = await supabase.from('fuel_prices').select('fuel_type');
+
+        // Clear timeout
+        clearTimeout(timeoutId);
 
         if (data && data.length > 0) {
           // Get unique fuel types from the database
           const dbFuelTypes = [...new Set(data.map((item) => item.fuel_type))];
           console.log('Fuel types in database:', dbFuelTypes);
           console.log('Fuel types in constants:', FUEL_TYPES);
+        } else {
+          console.log('No fuel types found in database');
         }
       } catch (err) {
         console.error('Error checking fuel types:', err);
@@ -175,6 +187,14 @@ export default function PricesScreen() {
       />
     );
   };
+
+  useEffect(() => {
+    fetchPrices().catch((err) => {
+      console.error('Error during initial fetch:', err);
+      setLoading(false);
+      setError('Failed to connect to database');
+    });
+  }, [fetchPrices]);
 
   return (
     <View style={styles.container}>

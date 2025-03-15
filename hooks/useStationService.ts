@@ -50,17 +50,37 @@ export function useNearbyStations(radiusKm: number = 5) {
 
         // Get current location
         const location = await locationService.getCurrentLocation();
+        console.log('Current location:', location);
 
         // Get nearby stations
+        console.log('Searching for stations within', radiusKm, 'km');
         const data = await stationService.getStationsNearby(
           location.latitude,
           location.longitude,
           radiusKm
         );
 
-        setStations(data);
+        // Sort by distance (closest first)
+        const sortedStations = [...data].sort(
+          (a, b) =>
+            (a.distance || Number.MAX_VALUE) - (b.distance || Number.MAX_VALUE)
+        );
+
+        console.log('Stations found:', sortedStations.length);
+        if (sortedStations.length > 0) {
+          console.log(
+            'First station:',
+            sortedStations[0].name,
+            'distance:',
+            sortedStations[0].distance,
+            'km'
+          );
+        }
+
+        setStations(sortedStations);
         setError(null);
       } catch (err) {
+        console.error('Error fetching nearby stations:', err);
         setError(
           err instanceof Error ? err : new Error('Unknown error occurred')
         );

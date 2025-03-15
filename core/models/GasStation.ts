@@ -1,4 +1,4 @@
-// /core/models/GasStation.ts
+// /core/models/GasStation.ts - UPDATED
 export interface GasStation {
   id: string;
   name: string;
@@ -17,5 +17,5 @@ export interface GasStation {
     is24Hours: boolean;
     daysOpen: string[];
   };
-  status: 'operational' | 'closed' | 'temporarily_closed';
+  status: 'active' | 'inactive' | 'temporary_closed' | 'permanently_closed';
 }
