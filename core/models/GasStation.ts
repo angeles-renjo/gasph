@@ -1,4 +1,3 @@
-// /core/models/GasStation.ts
 export interface GasStation {
   id: string;
   name: string;
@@ -10,13 +9,12 @@ export interface GasStation {
     longitude: number;
   };
   amenities: string[];
-  operatingHours: {
+  operating_hours: {
     open: string;
     close: string;
-    is24Hours: boolean;
-    daysOpen: string[];
+    is24_hours: boolean; // Changed from is24Hours
+    days_open: string[]; // Changed from daysOpen
   };
   status: 'active' | 'inactive' | 'temporary_closed' | 'permanently_closed';
-  // The distance field is calculated at query time and not stored in the database
   distance?: number;
 }

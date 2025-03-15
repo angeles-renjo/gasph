@@ -1,4 +1,3 @@
-// src/components/price/PriceCard.tsx
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { FuelPrice } from '@/core/models/FuelPrice';
@@ -14,32 +13,32 @@ export const PriceCard: React.FC<PriceCardProps> = ({ price, onPress }) => {
     <View style={styles.card}>
       <View style={styles.header}>
         <Text style={styles.brand}>{price.brand}</Text>
-        <Text style={styles.fuelType}>{price.fuelType}</Text>
+        <Text style={styles.fuelType}>{price.fuel_type}</Text>
       </View>
 
       <View style={styles.priceContainer}>
         <Text style={styles.priceLabel}>Common Price</Text>
-        <Text style={styles.price}>{formatCurrency(price.commonPrice)}</Text>
+        <Text style={styles.price}>{formatCurrency(price.common_price)}</Text>
       </View>
 
       <View style={styles.priceRange}>
         <View style={styles.rangeItem}>
           <Text style={styles.rangeLabel}>Min</Text>
           <Text style={styles.rangeValue}>
-            {formatCurrency(price.minPrice)}
+            {formatCurrency(price.min_price)}
           </Text>
         </View>
         <View style={styles.rangeItem}>
           <Text style={styles.rangeLabel}>Max</Text>
           <Text style={styles.rangeValue}>
-            {formatCurrency(price.maxPrice)}
+            {formatCurrency(price.max_price)}
           </Text>
         </View>
       </View>
 
       <Text style={styles.area}>{price.area}</Text>
       <Text style={styles.date}>
-        Week of {new Date(price.weekOf).toLocaleDateString()}
+        Week of {new Date(price.week_of).toLocaleDateString()}
       </Text>
     </View>
   );

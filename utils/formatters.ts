@@ -1,4 +1,3 @@
-// src/utils/formatters.ts
 /**
  * Format a number as Philippine Peso
  */
@@ -55,14 +54,14 @@ export const formatTime = (time: string): string => {
 export const formatOperatingHours = (operatingHours: {
   open: string;
   close: string;
-  is24Hours: boolean;
-  daysOpen: string[];
+  is24_hours: boolean; // Changed from is24Hours
+  days_open: string[]; // Changed from daysOpen
 }): string => {
-  if (operatingHours.is24Hours) {
+  if (operatingHours.is24_hours) {
     return 'Open 24 hours';
   }
 
-  const daysString = formatDays(operatingHours.daysOpen);
+  const daysString = formatDays(operatingHours.days_open);
   const hoursString = `${formatTime(operatingHours.open)} - ${formatTime(
     operatingHours.close
   )}`;

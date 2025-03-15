@@ -1,40 +1,15 @@
-// src/hooks/useStationService.ts
 import { useState, useEffect } from 'react';
 import { useServiceContext } from '@/context/ServiceContext';
 import { GasStation } from '@/core/models/GasStation';
+import { useFetch } from './useFetch';
 
 export function useStationById(id: string | null) {
   const { stationService } = useServiceContext();
-  const [station, setStation] = useState<GasStation | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
 
-  useEffect(() => {
-    if (!id) {
-      setStation(null);
-      setLoading(false);
-      return;
-    }
-
-    const fetchStation = async () => {
-      try {
-        setLoading(true);
-        const data = await stationService.getStationById(id);
-        setStation(data);
-        setError(null);
-      } catch (err) {
-        setError(
-          err instanceof Error ? err : new Error('Unknown error occurred')
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStation();
-  }, [id, stationService]);
-
-  return { station, loading, error };
+  return useFetch(
+    () => (id ? stationService.findById(id) : Promise.resolve(null)),
+    [id]
+  );
 }
 
 export function useNearbyStations(radiusKm: number = 5) {
@@ -97,28 +72,5 @@ export function useNearbyStations(radiusKm: number = 5) {
 
 export function useStationsByCity(city: string) {
   const { stationService } = useServiceContext();
-  const [stations, setStations] = useState<GasStation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    const fetchStations = async () => {
-      try {
-        setLoading(true);
-        const data = await stationService.getStationsByCity(city);
-        setStations(data);
-        setError(null);
-      } catch (err) {
-        setError(
-          err instanceof Error ? err : new Error('Unknown error occurred')
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStations();
-  }, [city, stationService]);
-
-  return { stations, loading, error };
+  return useFetch(() => stationService.getStationsByCity(city), [city]);
 }

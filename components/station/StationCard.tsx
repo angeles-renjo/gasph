@@ -1,4 +1,3 @@
-// src/components/station/StationCard.tsx
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { GasStation } from '@/core/models/GasStation';
@@ -31,6 +30,7 @@ export const StationCard: React.FC<StationCardProps> = ({
         // Get latest week_of date
         const { data: latestWeek } = await supabase
           .from('fuel_prices')
+          // Continued from previous section
           .select('week_of')
           .order('week_of', { ascending: false })
           .limit(1)

@@ -1,7 +1,7 @@
-// src/utils/sorting.ts
 import { FuelPrice } from '@/core/models/FuelPrice';
 import { GasStation } from '@/core/models/GasStation';
 import { Coordinates } from '@/core/interfaces/ILocationService';
+import { calculateDistance } from './geo';
 
 /**
  * Sort fuel prices by price (ascending or descending)
@@ -12,8 +12,8 @@ export const sortPricesByPrice = (
 ): FuelPrice[] => {
   return [...prices].sort((a, b) => {
     return ascending
-      ? a.commonPrice - b.commonPrice
-      : b.commonPrice - a.commonPrice;
+      ? a.common_price - b.common_price
+      : b.common_price - a.common_price;
   });
 };
 
@@ -37,25 +37,6 @@ export const sortStationsByDistance = (
   stations: GasStation[],
   from: Coordinates
 ): GasStation[] => {
-  // Helper function to calculate distance between two coordinates (Haversine formula)
-  const calculateDistance = (from: Coordinates, to: Coordinates): number => {
-    const R = 6371; // Earth's radius in km
-    const dLat = toRad(to.latitude - from.latitude);
-    const dLon = toRad(to.longitude - from.longitude);
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(toRad(from.latitude)) *
-        Math.cos(toRad(to.latitude)) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  };
-
-  const toRad = (value: number): number => {
-    return (value * Math.PI) / 180;
-  };
-
   // Calculate distance for each station and sort
   return [...stations]
     .map((station) => ({

@@ -22,7 +22,7 @@ import { supabase } from '@/utils/supabase';
 
 export default function StationDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { station, loading, error } = useStationById(id);
+  const { data: station, loading, error } = useStationById(id);
 
   // State for fuel prices
   const [fuelPrices, setFuelPrices] = useState<any[]>([]);
@@ -136,7 +136,7 @@ export default function StationDetailsScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Hours</Text>
         <Text style={styles.sectionContent}>
-          {formatOperatingHours(station.operatingHours)}
+          {formatOperatingHours(station.operating_hours)}
         </Text>
       </View>
 

@@ -1,12 +1,11 @@
-// /core/models/User.ts
 export interface User {
   id: string;
   email: string;
-  displayName: string;
-  favoriteStations: string[];
+  display_name: string; // Changed from displayName
+  favorite_stations: string[]; // Changed from favoriteStations
   preferences: {
-    defaultFuelType: string;
-    notificationsEnabled: boolean;
-    radiusPreference: number; // in kilometers
+    default_fuel_type: string; // Changed from defaultFuelType
+    notifications_enabled: boolean; // Changed from notificationsEnabled
+    radius_preference: number; // Changed from radiusPreference
   };
 }

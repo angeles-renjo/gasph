@@ -1,20 +1,18 @@
-// src/context/ServiceContext.tsx
 import React, { createContext, useContext } from 'react';
-import { useServices } from '@/core/ServiceLocator';
-import { IPriceService } from '@/core/interfaces/IPriceService';
-import { IStationService } from '@/core/interfaces/IStationService';
-import { ILocationService } from '@/core/interfaces/ILocationService';
-import { IGooglePlacesService } from '@/core/interfaces/IGooglePlacesService';
-import { IGasStationImportService } from '@/core/interfaces/IGasStationImportService';
-import { IGasStationRepository } from '@/core/interfaces/IGasStationRepository';
+import {
+  priceService,
+  stationService,
+  locationService,
+  googlePlacesService,
+  gasStationImportService,
+} from '@/core/services';
 
 interface ServiceContextType {
-  priceService: IPriceService;
-  stationService: IStationService;
-  locationService: ILocationService;
-  googlePlacesService: IGooglePlacesService;
-  gasStationImportService: IGasStationImportService;
-  gasStationRepository: IGasStationRepository;
+  priceService: typeof priceService;
+  stationService: typeof stationService;
+  locationService: typeof locationService;
+  googlePlacesService: typeof googlePlacesService;
+  gasStationImportService: typeof gasStationImportService;
 }
 
 const ServiceContext = createContext<ServiceContextType | undefined>(undefined);
@@ -22,10 +20,16 @@ const ServiceContext = createContext<ServiceContextType | undefined>(undefined);
 export const ServiceProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const services = useServices();
-
   return (
-    <ServiceContext.Provider value={services}>
+    <ServiceContext.Provider
+      value={{
+        priceService,
+        stationService,
+        locationService,
+        googlePlacesService,
+        gasStationImportService,
+      }}
+    >
       {children}
     </ServiceContext.Provider>
   );

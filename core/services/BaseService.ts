@@ -1,13 +1,13 @@
 import { supabase } from '@/utils/supabase';
 
-export class SupabaseDataSource {
+export class BaseService<T> {
   protected tableName: string;
 
   constructor(tableName: string) {
     this.tableName = tableName;
   }
 
-  async findById(id: string): Promise<any | null> {
+  async findById(id: string): Promise<T | null> {
     const { data, error } = await supabase
       .from(this.tableName)
       .select('*')
@@ -22,7 +22,7 @@ export class SupabaseDataSource {
     return data;
   }
 
-  async findAll(): Promise<any[]> {
+  async findAll(): Promise<T[]> {
     const { data, error } = await supabase.from(this.tableName).select('*');
 
     if (error) {
@@ -33,7 +33,7 @@ export class SupabaseDataSource {
     return data || [];
   }
 
-  async findByFilter(filter: Record<string, any>): Promise<any[]> {
+  async findByFilter(filter: Partial<T>): Promise<T[]> {
     let query = supabase.from(this.tableName).select('*');
 
     // Apply each filter condition
@@ -53,7 +53,7 @@ export class SupabaseDataSource {
     return data || [];
   }
 
-  async create(item: Record<string, any>): Promise<any> {
+  async create(item: Omit<T, 'id'>): Promise<T> {
     const { data, error } = await supabase
       .from(this.tableName)
       .insert(item)
@@ -68,7 +68,7 @@ export class SupabaseDataSource {
     return data;
   }
 
-  async update(id: string, item: Record<string, any>): Promise<any> {
+  async update(id: string, item: Partial<T>): Promise<T> {
     const { data, error } = await supabase
       .from(this.tableName)
       .update(item)

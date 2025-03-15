@@ -1,4 +1,3 @@
-// src/utils/filtering.ts
 import { FuelPrice } from '@/core/models/FuelPrice';
 import { GasStation } from '@/core/models/GasStation';
 
@@ -24,7 +23,7 @@ export const filterPricesByFuelType = (
 ): FuelPrice[] => {
   if (!fuelType) return prices;
   return prices.filter(
-    (price) => price.fuelType.toLowerCase() === fuelType.toLowerCase()
+    (price) => price.fuel_type.toLowerCase() === fuelType.toLowerCase()
   );
 };
 

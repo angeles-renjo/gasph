@@ -1,4 +1,4 @@
-// app/(tabs)/index.tsx - Prices Tab with direct Supabase query
+// app/(tabs)/index.tsx - Prices Tab
 import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
@@ -44,21 +44,9 @@ export default function PricesScreen() {
         return;
       }
 
-      // Map the data to your model
-      const mappedData: FuelPrice[] = (data || []).map((item) => ({
-        id: item.id,
-        area: item.area,
-        brand: item.brand,
-        fuelType: item.fuel_type,
-        minPrice: item.min_price,
-        maxPrice: item.max_price,
-        commonPrice: item.common_price,
-        weekOf: new Date(item.week_of),
-        updatedAt: new Date(item.updated_at),
-      }));
-
-      console.log(`Fetched ${mappedData.length} prices from Supabase`);
-      setAllPrices(mappedData);
+      // Data is already in the correct format, no mapping needed
+      console.log(`Fetched ${data ? data.length : 0} prices from Supabase`);
+      setAllPrices(data || []);
       setError(null);
     } catch (err) {
       console.error('Exception during fetch:', err);
@@ -69,7 +57,6 @@ export default function PricesScreen() {
   }, []);
 
   // Load prices on component mount
-  // Add this to your PricesScreen component
   useEffect(() => {
     const checkFuelTypes = async () => {
       try {
