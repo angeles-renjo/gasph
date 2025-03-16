@@ -2,6 +2,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Button, TouchableOpacity } from 'react-native';
 import { router, Link } from 'expo-router';
+import { MaterialIcons } from '@expo/vector-icons';
 
 export default function ProfileScreen() {
   return (
@@ -32,6 +33,29 @@ export default function ProfileScreen() {
           <Text style={styles.adminButtonText}>Open Admin Dashboard</Text>
         </TouchableOpacity>
         <Text style={styles.adminNote}>*For demonstration purposes only</Text>
+      </View>
+
+      {/* Dev Tools Access */}
+      <View
+        style={[
+          styles.adminSection,
+          { marginTop: 16, backgroundColor: '#f0f4f8' },
+        ]}
+      >
+        <Text style={styles.adminTitle}>Developer Tools</Text>
+        <TouchableOpacity
+          style={[styles.adminButton, { backgroundColor: '#3498db' }]}
+          onPress={() => router.push('/dev-tools')}
+        >
+          <MaterialIcons
+            name='bug-report'
+            size={18}
+            color='#fff'
+            style={{ marginRight: 8 }}
+          />
+          <Text style={styles.adminButtonText}>Open Dev Tools</Text>
+        </TouchableOpacity>
+        <Text style={styles.adminNote}>*For testing and debugging</Text>
       </View>
     </View>
   );
@@ -79,11 +103,13 @@ const styles = StyleSheet.create({
   },
   adminButton: {
     backgroundColor: '#673AB7',
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     borderRadius: 6,
     width: '100%',
-    alignItems: 'center',
+    justifyContent: 'center',
   },
   adminButtonText: {
     color: 'white',

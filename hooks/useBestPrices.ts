@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useServiceContext } from '@/context/ServiceContext';
 import { FuelPrice } from '@/core/models/FuelPrice';
 import { Coordinates } from '@/core/interfaces/ILocationService';
+import { GasStation } from '@/core/models/GasStation';
 
 export interface BestPriceItem {
   id: string;
@@ -12,7 +13,7 @@ export interface BestPriceItem {
   stationName: string;
   stationId: string;
   area: string;
-  // Remove distance to simplify implementation
+  distance?: number;
 }
 
 // Default Manila coordinates
@@ -22,8 +23,7 @@ const DEFAULT_COORDINATES = {
 };
 
 export function useBestPrices() {
-  const serviceContext = useServiceContext();
-  const { priceService, stationService, locationService } = serviceContext;
+  const { priceService, stationService, locationService } = useServiceContext();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,78 +33,140 @@ export function useBestPrices() {
   const [userLocation, setUserLocation] =
     useState<Coordinates>(DEFAULT_COORDINATES);
   const [locationName, setLocationName] = useState<string>('Manila');
+  const [nearbyStations, setNearbyStations] = useState<GasStation[]>([]);
 
-  // Get user location once on mount
+  // Initial location setup
   useEffect(() => {
+    let isMounted = true;
+
     const getUserLocation = async () => {
       try {
         const location = await locationService.getCurrentLocation();
-        setUserLocation(location);
+        if (isMounted) {
+          console.log('Retrieved user location:', location);
+          setUserLocation(location);
 
-        // Get location name
-        const name = await locationService.getLocationName(location);
-        setLocationName(name);
+          const name = await locationService.getLocationName(location);
+          setLocationName(name);
+          console.log('Location name:', name);
+        }
       } catch (err) {
         console.error('Error getting user location:', err);
-        // Keep using default Manila coordinates
       }
     };
 
     getUserLocation();
-  }, []); // Empty dependency array to run only once
 
-  // Fetch all prices and find best deals
+    // Cleanup function to prevent state updates after unmount
+    return () => {
+      isMounted = false;
+    };
+  }, [locationService]);
+
+  // Fetch nearby stations when user location is available
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchNearbyStations = async () => {
+      try {
+        setLoading(true);
+        console.log('Fetching nearby stations...');
+
+        // Get stations within a reasonable radius
+        const radius = 10; // 10km radius to get enough stations
+        const stations = await stationService.getStationsNearby(
+          userLocation.latitude,
+          userLocation.longitude,
+          radius
+        );
+
+        if (isMounted) {
+          console.log(
+            `Found ${stations.length} nearby stations within ${radius}km`
+          );
+          setNearbyStations(stations);
+        }
+      } catch (err) {
+        console.error('Error fetching nearby stations:', err);
+        if (isMounted) {
+          setError('Failed to fetch nearby stations');
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchNearbyStations();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [userLocation, stationService]);
+
+  // Fetch and process prices when we have nearby stations
   const fetchBestPrices = useCallback(async () => {
+    if (nearbyStations.length === 0) {
+      console.log('No nearby stations available, skipping price fetch');
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
 
-      // Get the latest prices directly
-      let latestPrices: FuelPrice[] = [];
-      try {
-        latestPrices = await priceService.getLatestPrices();
-        console.log(`Fetched ${latestPrices.length} prices`);
-      } catch (priceErr) {
-        setError(
-          `Error fetching prices: ${
-            priceErr instanceof Error ? priceErr.message : 'Unknown error'
-          }`
-        );
-        return;
-      }
+      console.log('Fetching latest fuel prices...');
+      const latestPrices = await priceService.getLatestPrices();
+      console.log(`Fetched ${latestPrices.length} prices`);
 
-      // Group by fuel type
-      const pricesByFuelType: Record<string, FuelPrice[]> = {};
+      // Get all unique fuel types
+      const fuelTypes = [
+        ...new Set(latestPrices.map((price) => price.fuel_type)),
+      ];
+      console.log(`Available fuel types: ${fuelTypes.join(', ')}`);
 
-      latestPrices.forEach((price) => {
-        if (!pricesByFuelType[price.fuel_type]) {
-          pricesByFuelType[price.fuel_type] = [];
-        }
-        pricesByFuelType[price.fuel_type].push(price);
+      // Create a map of brand+city to station for efficient lookups
+      const stationMap: Record<string, GasStation> = {};
+      nearbyStations.forEach((station) => {
+        const key = `${station.brand.toLowerCase()}_${station.city.toLowerCase()}`;
+        stationMap[key] = station;
       });
 
-      // Find best prices for each fuel type
+      // Process each fuel type
       const bestPricesByFuelType: Record<string, BestPriceItem[]> = {};
 
-      for (const [fuelType, prices] of Object.entries(pricesByFuelType)) {
+      for (const fuelType of fuelTypes) {
+        // Get prices for this fuel type
+        const pricesForType = latestPrices.filter(
+          (p) => p.fuel_type === fuelType
+        );
+
         // Sort by price (lowest first)
-        const sortedPrices = [...prices].sort(
+        const sortedPrices = [...pricesForType].sort(
           (a, b) => a.common_price - b.common_price
         );
 
         // Take the top 5 or fewer
         const topPrices = sortedPrices.slice(0, 5);
 
-        // Map directly to best items without station matching for now
-        const bestItems: BestPriceItem[] = topPrices.map((price) => ({
-          id: price.id,
-          fuelType: price.fuel_type,
-          price: price.common_price,
-          brand: price.brand,
-          stationName: price.brand, // Just use brand name for now
-          stationId: '', // Empty for now
-          area: price.area,
-        }));
+        // Map to best items with station matching
+        const bestItems: BestPriceItem[] = topPrices.map((price) => {
+          // Try to find a matching nearby station
+          const key = `${price.brand.toLowerCase()}_${price.area.toLowerCase()}`;
+          const matchingStation = stationMap[key];
+
+          return {
+            id: price.id,
+            fuelType: price.fuel_type,
+            price: price.common_price,
+            brand: price.brand,
+            stationName: matchingStation?.name || price.brand,
+            stationId: matchingStation?.id || '',
+            area: price.area,
+            distance: matchingStation?.distance,
+          };
+        });
 
         bestPricesByFuelType[fuelType] = bestItems;
       }
@@ -116,9 +178,9 @@ export function useBestPrices() {
     } finally {
       setLoading(false);
     }
-  }, [priceService]);
+  }, [priceService, nearbyStations]);
 
-  // Fetch best prices on component mount only
+  // Fetch prices when nearby stations are available
   useEffect(() => {
     fetchBestPrices();
   }, [fetchBestPrices]);

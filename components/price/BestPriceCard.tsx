@@ -43,33 +43,36 @@ const BestPriceCard: React.FC<BestPriceCardProps> = ({
     }
   };
 
-  // For demonstration - we'll hardcode some distances
-  // In a real implementation, this would come from price.distance
-  const getDistance = () => {
-    // This is just for demonstration
-    // We would normally use price.distance here
-    // Using a simple pattern based on rank for the demo
-    switch (rank) {
-      case 1:
-        return '2.5km';
-      case 2:
-        return '3.1km';
-      case 3:
-        return '3.7km';
-      case 4:
-        return '4.2km';
-      case 5:
-        return '5.0km';
-      default:
-        return '3.5km';
+  // Format the distance string or provide a default
+  const formatDistance = () => {
+    if (price.distance === undefined || price.distance === null) {
+      return 'Distance unknown';
     }
+
+    if (price.distance < 0.1) {
+      return `${Math.round(price.distance * 1000)} m`;
+    } else if (price.distance < 1) {
+      return `${(price.distance * 1000).toFixed(0)} m`;
+    }
+
+    return `${price.distance.toFixed(1)} km`;
   };
+
+  // Determine if we have enough station data to show the detail page
+  const hasStationDetails = !!price.stationId;
+
+  // Format name and brand
+  const displayName = price.stationName || price.brand;
+  const displayTitle =
+    displayName.length > 20
+      ? displayName.substring(0, 18) + '...'
+      : displayName;
 
   return (
     <TouchableOpacity
       style={[styles.card, { backgroundColor: getBackgroundColor() }]}
       onPress={onPress}
-      disabled={!price.stationId} // Disable if no station ID
+      disabled={!hasStationDetails} // Disable if no station ID
     >
       <View style={styles.rankContainer}>
         <Text style={styles.rankText}>
@@ -80,25 +83,24 @@ const BestPriceCard: React.FC<BestPriceCardProps> = ({
       <View style={styles.contentContainer}>
         <View style={styles.priceContainer}>
           <Text style={styles.price}>{formatCurrency(price.price)}</Text>
-          <Text style={styles.stationName}>{price.stationName}</Text>
+          <Text style={styles.stationName}>{displayTitle}</Text>
         </View>
 
         <View style={styles.detailsContainer}>
           <Text style={styles.area}>{price.area}</Text>
 
-          {/* Show hardcoded distance */}
           <View style={styles.distanceContainer}>
             <MaterialIcons name='directions-car' size={14} color='#666' />
-            <Text style={styles.distance}>{getDistance()}</Text>
+            <Text style={styles.distance}>{formatDistance()}</Text>
           </View>
         </View>
 
-        {!price.stationId && (
+        {!hasStationDetails && (
           <Text style={styles.noStationText}>No station details available</Text>
         )}
       </View>
 
-      {price.stationId ? (
+      {hasStationDetails ? (
         <MaterialIcons
           name='chevron-right'
           size={24}
