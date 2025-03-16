@@ -1,23 +1,23 @@
 // src/core/services/GasStationImportService.ts
 import { IGasStationImportService } from '@/core/interfaces/IGasStationImportService';
-import { IGasStationRepository } from '@/core/interfaces/IGasStationRepository';
 import {
   IGooglePlacesService,
   PlaceDetails,
 } from '@/core/interfaces/IGooglePlacesService';
 import { GasStation } from '@/core/models/GasStation';
-import { BRANDS, AMENITIES } from '@/utils/constants';
+import { BRANDS } from '@/utils/constants';
+import { StationService } from './StationService';
 
 export class GasStationImportService implements IGasStationImportService {
   private googlePlacesService: IGooglePlacesService;
-  private gasStationRepository: IGasStationRepository;
+  private stationService: StationService;
 
   constructor(
     googlePlacesService: IGooglePlacesService,
-    gasStationRepository: IGasStationRepository
+    stationService: StationService
   ) {
     this.googlePlacesService = googlePlacesService;
-    this.gasStationRepository = gasStationRepository;
+    this.stationService = stationService;
   }
 
   async importGasStationsFromCity(city: string): Promise<number> {
@@ -25,40 +25,25 @@ export class GasStationImportService implements IGasStationImportService {
     let nextPageToken: string | undefined;
 
     try {
-      console.log(`Starting import for gas stations in ${city}`);
-
       do {
         // If using a page token, wait longer before making the request
         if (nextPageToken) {
-          console.log('Waiting for 3 seconds before fetching next page...');
           await new Promise((resolve) => setTimeout(resolve, 3000));
         }
 
         // Fetch gas stations page by page
-        console.log(
-          `Fetching page of gas stations${nextPageToken ? ' with token' : ''}`
-        );
         const result = await this.googlePlacesService.searchGasStationsInCity(
           city,
           nextPageToken
         );
         nextPageToken = result.nextPageToken;
 
-        console.log(`Found ${result.stations.length} stations in this page`);
-
         // Process each station with a delay between each
         for (let i = 0; i < result.stations.length; i++) {
           const station = result.stations[i];
           try {
-            console.log(
-              `Processing station (${i + 1}/${result.stations.length}): ${
-                station.name
-              } (${station.place_id})`
-            );
-
             // Important: Add a longer delay every few stations to avoid rate limits
             if (i > 0 && i % 3 === 0) {
-              console.log('Taking a short break to avoid rate limits...');
               await new Promise((resolve) => setTimeout(resolve, 2000));
             }
 
@@ -74,8 +59,8 @@ export class GasStationImportService implements IGasStationImportService {
               operating_hours: {
                 open: '00:00',
                 close: '23:59',
-                is24Hours: true,
-                daysOpen: [
+                is24_hours: true,
+                days_open: [
                   'Monday',
                   'Tuesday',
                   'Wednesday',
@@ -116,19 +101,13 @@ export class GasStationImportService implements IGasStationImportService {
               }
             } catch (error) {
               // If details request fails, just continue with basic data
-              console.log(
-                `Couldn't get additional details, using basic data: ${
-                  error instanceof Error ? error.message : String(error)
-                }`
-              );
             }
 
             // Check if station already exists - use model format for the query
             const gasStationName = dbData.name;
-            const existingStations =
-              await this.gasStationRepository.findByFilter({
-                name: gasStationName,
-              });
+            const existingStations = await this.stationService.findByFilter({
+              name: gasStationName,
+            });
 
             // Check for coordinate match
             let coordinateMatch = false;
@@ -150,9 +129,6 @@ export class GasStationImportService implements IGasStationImportService {
                   // If coordinates are very close (within ~50 meters), consider it a match
                   if (latDiff < 0.0005 && lngDiff < 0.0005) {
                     coordinateMatch = true;
-                    console.log(
-                      `Found existing station with similar coordinates: ${existing.name}`
-                    );
                     break;
                   }
                 }
@@ -160,86 +136,64 @@ export class GasStationImportService implements IGasStationImportService {
             }
 
             if (existingStations.length === 0 || !coordinateMatch) {
-              console.log(`Importing new station: ${dbData.name}`);
-
-              // Pass data directly in database format - repository will handle it
-              await this.gasStationRepository.create(dbData);
+              // Use stationService.create instead of repository
+              await this.stationService.create(dbData);
               importedCount++;
-            } else {
-              console.log(`Station already exists: ${dbData.name} - skipping`);
             }
           } catch (error) {
-            console.error(`Error processing station ${station.name}:`, error);
             // Continue with next station instead of failing the whole batch
           }
         }
       } while (nextPageToken);
 
-      console.log(
-        `Import completed. Imported ${importedCount} new stations in ${city}`
-      );
       return importedCount;
     } catch (error) {
-      console.error(`Error importing gas stations from ${city}:`, error);
       throw error;
     }
   }
 
-  // Map Google Places data directly to database format (snake_case and proper types)
-  mapPlaceToDatabase(placeDetails: PlaceDetails, city: string): any {
-    // Extract operating hours
+  mapPlaceToGasStation(placeDetails: PlaceDetails): Partial<GasStation> {
     const operatingHours = this.extractOperatingHours(
       placeDetails.opening_hours
     );
-
-    // Detect brand from name
     const brand = this.detectBrand(placeDetails.name);
-
-    // Extract amenities based on types and common features
     const amenities = this.detectAmenities(placeDetails.types);
-
-    // Map status
     const status = this.mapBusinessStatus(placeDetails.business_status);
 
-    // Extract province from address components if available
-    let province = 'NCR'; // Default to NCR (Metro Manila) for Philippines
+    let city = '';
     if (placeDetails.address_components) {
-      const provinceComponent = placeDetails.address_components.find(
+      const cityComponent = placeDetails.address_components.find(
         (comp) =>
-          comp.types.includes('administrative_area_level_2') ||
-          comp.types.includes('administrative_area_level_1')
+          comp.types.includes('locality') ||
+          comp.types.includes('administrative_area_level_3')
       );
-      if (provinceComponent) {
-        province = provinceComponent.long_name;
+      if (cityComponent) {
+        city = cityComponent.long_name;
       }
     }
 
-    // Format coordinates as PostgreSQL POINT
-    const coordinates = `POINT(${placeDetails.geometry.location.lng} ${placeDetails.geometry.location.lat})`;
-
-    // Return the mapped data in snake_case format matching the database schema
     return {
       name: placeDetails.name,
       brand: brand,
       address: placeDetails.formatted_address,
       city: city,
-      province: province,
-      coordinates: coordinates,
+      coordinates: {
+        latitude: placeDetails.geometry.location.lat,
+        longitude: placeDetails.geometry.location.lng,
+      },
       amenities: amenities,
-      operating_hours: operatingHours, // Note: snake_case for database
+      operating_hours: operatingHours,
       status: status,
-      // created_at and updated_at will be handled by the database defaults
     };
   }
 
-  // This returns the JavaScript object that will be stored as JSONB
   private extractOperatingHours(hours?: PlaceDetails['opening_hours']): any {
     if (!hours || !hours.periods) {
       return {
         open: '09:00',
         close: '17:00',
-        is24Hours: false,
-        daysOpen: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+        is24_hours: false,
+        days_open: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
       };
     }
 
@@ -291,8 +245,8 @@ export class GasStationImportService implements IGasStationImportService {
     return {
       open: openTime,
       close: closeTime,
-      is24Hours,
-      daysOpen,
+      is24_hours: is24Hours,
+      days_open: daysOpen,
     };
   }
 
@@ -360,41 +314,5 @@ export class GasStationImportService implements IGasStationImportService {
       default:
         return 'active';
     }
-  }
-
-  mapPlaceToGasStation(placeDetails: PlaceDetails): Partial<GasStation> {
-    // This is used for the TypeScript model in memory, not for database storage
-    const operatingHours = this.extractOperatingHours(
-      placeDetails.opening_hours
-    );
-    const brand = this.detectBrand(placeDetails.name);
-    const amenities = this.detectAmenities(placeDetails.types);
-    const status = this.mapBusinessStatus(placeDetails.business_status);
-
-    let city = '';
-    if (placeDetails.address_components) {
-      const cityComponent = placeDetails.address_components.find(
-        (comp) =>
-          comp.types.includes('locality') ||
-          comp.types.includes('administrative_area_level_3')
-      );
-      if (cityComponent) {
-        city = cityComponent.long_name;
-      }
-    }
-
-    return {
-      name: placeDetails.name,
-      brand: brand,
-      address: placeDetails.formatted_address,
-      city: city,
-      coordinates: {
-        latitude: placeDetails.geometry.location.lat,
-        longitude: placeDetails.geometry.location.lng,
-      },
-      amenities: amenities,
-      operatingHours: operatingHours,
-      status: status,
-    };
   }
 }

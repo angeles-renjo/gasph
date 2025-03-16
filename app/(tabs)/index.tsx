@@ -1,119 +1,71 @@
-// app/(tabs)/index.tsx - Prices Tab
-import React, { useState, useCallback, useEffect } from 'react';
+// app/(tabs)/index.tsx
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
-  RefreshControl,
   TouchableOpacity,
+  RefreshControl,
+  Alert,
 } from 'react-native';
-import PriceCard from '@/components/price/PriceCard';
-import { LoadingIndicator } from '@/components/common/LoadingIndicator';
-import { ErrorDisplay } from '@/components/common/ErrorDisplay';
+import { router } from 'expo-router';
+import { MaterialIcons } from '@expo/vector-icons';
+import { useBestPrices } from '@/hooks/useBestPrices';
+import BestPriceCard from '@/components/price/BestPriceCard';
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorDisplay } from '@/components/common/ErrorDisplay';
+import { LoadingIndicator } from '@/components/common/LoadingIndicator';
 import { FUEL_TYPES } from '@/utils/constants';
-import { FuelPrice } from '@/core/models/FuelPrice';
-import { sortPricesByPrice } from '@/utils/sorting';
-import { filterPricesByFuelType } from '@/utils/filtering';
-import { supabase } from '@/utils/supabase';
 
-export default function PricesScreen() {
+export default function BestPricesScreen() {
+  const { bestPrices, loading, error, locationName, refreshPrices } =
+    useBestPrices();
   const [selectedFuelType, setSelectedFuelType] = useState<string>(
     FUEL_TYPES[0]
   );
-  const [allPrices, setAllPrices] = useState<FuelPrice[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Fetch prices directly from Supabase
-  const fetchPrices = useCallback(async () => {
-    console.log('Fetching prices directly from Supabase...');
-    try {
-      setLoading(true);
-
-      const { data, error } = await supabase
-        .from('fuel_prices')
-        .select('*')
-        .order('week_of', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching prices:', error);
-        setError(error.message);
-        return;
-      }
-
-      // Data is already in the correct format, no mapping needed
-      console.log(`Fetched ${data ? data.length : 0} prices from Supabase`);
-      setAllPrices(data || []);
-      setError(null);
-    } catch (err) {
-      console.error('Exception during fetch:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error occurred');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Load prices on component mount
-  useEffect(() => {
-    const checkFuelTypes = async () => {
-      try {
-        console.log('Checking database fuel types...');
-
-        // Add timeout
-        const timeoutId = setTimeout(() => {
-          console.log('Fuel type check timed out');
-          console.error('Database connection timeout');
-        }, 10000);
-
-        const { data } = await supabase.from('fuel_prices').select('fuel_type');
-
-        // Clear timeout
-        clearTimeout(timeoutId);
-
-        if (data && data.length > 0) {
-          // Get unique fuel types from the database
-          const dbFuelTypes = [...new Set(data.map((item) => item.fuel_type))];
-          console.log('Fuel types in database:', dbFuelTypes);
-          console.log('Fuel types in constants:', FUEL_TYPES);
-        } else {
-          console.log('No fuel types found in database');
-        }
-      } catch (err) {
-        console.error('Error checking fuel types:', err);
-      }
-    };
-
-    checkFuelTypes();
-  }, []);
-
-  // Filter prices by the selected fuel type
-  const filteredPrices = filterPricesByFuelType(allPrices, selectedFuelType);
-
-  // Sort prices by price (ascending)
-  const sortedPrices = sortPricesByPrice(filteredPrices, true);
-
-  // Pull to refresh function
-  const onRefresh = useCallback(async () => {
+  // Handle pull-to-refresh
+  const onRefresh = async () => {
     setRefreshing(true);
-    try {
-      await fetchPrices();
-    } catch (err) {
-      console.error('Refresh error:', err);
-    } finally {
-      setRefreshing(false);
-    }
-  }, [fetchPrices]);
+    await refreshPrices();
+    setRefreshing(false);
+  };
 
+  // Get prices for the selected fuel type
+  const currentPrices = bestPrices[selectedFuelType] || [];
+
+  // Handle navigation to station details
+  const handlePricePress = (stationId: string) => {
+    if (stationId) {
+      router.push(`/station/${stationId}`);
+    } else {
+      // If no station ID, show a helpful message
+      Alert.alert(
+        'Station Not Available',
+        "We don't have details for this station in our database yet. Try searching for this brand in the Explore tab.",
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  // Render the fuel type filter
   const renderFuelTypeFilter = () => {
+    // Get available fuel types from the data, or use constants if no data yet
+    const fuelTypes =
+      Object.keys(bestPrices).length > 0 ? Object.keys(bestPrices) : FUEL_TYPES;
+
+    // Make sure our selected fuel type is valid
+    if (fuelTypes.length > 0 && !fuelTypes.includes(selectedFuelType)) {
+      setSelectedFuelType(fuelTypes[0]);
+    }
+
     return (
       <View style={styles.filterContainer}>
-        <Text style={styles.filterLabel}>Fuel Type:</Text>
         <FlatList
           horizontal
-          data={FUEL_TYPES}
+          data={fuelTypes}
           keyExtractor={(item) => item}
           renderItem={({ item }) => (
             <TouchableOpacity
@@ -139,34 +91,41 @@ export default function PricesScreen() {
     );
   };
 
+  // Main content renderer
   const renderContent = () => {
-    if (loading) {
-      return <LoadingIndicator message='Loading fuel prices...' />;
+    if (loading && !refreshing) {
+      return <LoadingIndicator message='Finding best fuel prices...' />;
     }
 
     if (error) {
       return (
         <ErrorDisplay
           message={`Failed to load fuel prices: ${error}`}
-          onRetry={onRefresh}
+          onRetry={refreshPrices}
         />
       );
     }
 
-    if (sortedPrices.length === 0) {
+    if (currentPrices.length === 0) {
       return (
         <EmptyState
           title='No Prices Found'
-          message={`We couldn't find any ${selectedFuelType} prices. Try selecting a different fuel type.`}
+          message={`We couldn't find any ${selectedFuelType} prices in your area. Try selecting a different fuel type or updating your location.`}
         />
       );
     }
 
     return (
       <FlatList
-        data={sortedPrices}
+        data={currentPrices}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <PriceCard price={item} />}
+        renderItem={({ item, index }) => (
+          <BestPriceCard
+            price={item}
+            rank={index + 1}
+            onPress={() => handlePricePress(item.stationId)}
+          />
+        )}
         contentContainerStyle={styles.listContainer}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -175,21 +134,16 @@ export default function PricesScreen() {
     );
   };
 
-  useEffect(() => {
-    fetchPrices().catch((err) => {
-      console.error('Error during initial fetch:', err);
-      setLoading(false);
-      setError('Failed to connect to database');
-    });
-  }, [fetchPrices]);
-
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Latest Fuel Prices</Text>
-      <Text style={styles.debug}>
-        Found {allPrices.length} total prices, {sortedPrices.length} matching{' '}
-        {selectedFuelType}
-      </Text>
+      <View style={styles.header}>
+        <Text style={styles.title}>Best Fuel Prices</Text>
+        <View style={styles.locationContainer}>
+          <MaterialIcons name='location-on' size={16} color='#666' />
+          <Text style={styles.locationText}>Near {locationName}</Text>
+        </View>
+      </View>
+
       {renderFuelTypeFilter()}
       {renderContent()}
     </View>
@@ -201,26 +155,27 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
+  header: {
+    padding: 16,
+    paddingBottom: 8,
+  },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    margin: 16,
-    marginBottom: 8,
+    marginBottom: 4,
   },
-  debug: {
-    fontSize: 12,
+  locationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  locationText: {
+    fontSize: 14,
     color: '#666',
-    marginHorizontal: 16,
-    marginBottom: 8,
+    marginLeft: 4,
   },
   filterContainer: {
-    margin: 16,
-    marginTop: 0,
-  },
-  filterLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   filterItem: {
     paddingVertical: 8,
@@ -240,6 +195,7 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   listContainer: {
-    paddingBottom: 16,
+    padding: 16,
+    paddingTop: 8,
   },
 });

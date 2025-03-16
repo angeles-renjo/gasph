@@ -1,4 +1,4 @@
-// src/core/services/GooglePlacesService.ts
+// core/services/GooglePlacesService.ts
 import {
   IGooglePlacesService,
   PlaceDetails,
@@ -10,10 +10,6 @@ export class GooglePlacesService implements IGooglePlacesService {
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
-
-    if (!apiKey) {
-      console.warn('GooglePlacesService initialized without API key');
-    }
   }
 
   async searchGasStationsInCity(
@@ -47,16 +43,10 @@ export class GooglePlacesService implements IGooglePlacesService {
           `&key=${this.apiKey}`;
       }
 
-      console.log(`Fetching gas stations with URL: ${url}`);
       const response = await fetch(url);
       const data = await response.json();
 
       if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
-        console.error(
-          'Google Places API error:',
-          data.status,
-          data.error_message
-        );
         throw new Error(
           `Google Places API error: ${data.status}${
             data.error_message ? ` - ${data.error_message}` : ''
@@ -69,7 +59,6 @@ export class GooglePlacesService implements IGooglePlacesService {
         nextPageToken: data.next_page_token,
       };
     } catch (error) {
-      console.error('Error searching gas stations:', error);
       throw error;
     }
   }
@@ -86,11 +75,6 @@ export class GooglePlacesService implements IGooglePlacesService {
       const data = await response.json();
 
       if (data.status !== 'OK') {
-        console.error(
-          'Google Places Details API error:',
-          data.status,
-          data.error_message
-        );
         throw new Error(
           `Google Places Details API error: ${data.status}${
             data.error_message ? ` - ${data.error_message}` : ''
@@ -100,7 +84,6 @@ export class GooglePlacesService implements IGooglePlacesService {
 
       return data.result;
     } catch (error) {
-      console.error('Error fetching place details:', error);
       throw error;
     }
   }
@@ -111,7 +94,6 @@ export class GooglePlacesService implements IGooglePlacesService {
     try {
       // Add Philippines to make the search more accurate
       const searchAddress = `${cityName}, Philippines`;
-      console.log(`Geocoding address: ${searchAddress}`);
 
       const url =
         `https://maps.googleapis.com/maps/api/geocode/json?` +
@@ -122,17 +104,12 @@ export class GooglePlacesService implements IGooglePlacesService {
       const data = await response.json();
 
       if (data.status !== 'OK' || !data.results || data.results.length === 0) {
-        console.error('Geocoding error:', data.status, data.error_message);
         return null;
       }
 
       // Get location of the first result
-      const location = data.results[0].geometry.location;
-      console.log(`Geocoded ${cityName} to:`, location);
-
-      return location;
+      return data.results[0].geometry.location;
     } catch (error) {
-      console.error('Error geocoding city:', error);
       return null;
     }
   }

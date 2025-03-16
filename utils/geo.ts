@@ -1,5 +1,12 @@
+// utils/geo.ts
 import { Coordinates } from '@/core/interfaces/ILocationService';
 
+/**
+ * Calculate the distance between two geographical coordinates using the Haversine formula
+ * @param from Starting coordinates
+ * @param to Ending coordinates
+ * @returns Distance in kilometers
+ */
 export function calculateDistance(from: Coordinates, to: Coordinates): number {
   const R = 6371; // Earth's radius in km
   const dLat = toRad(to.latitude - from.latitude);

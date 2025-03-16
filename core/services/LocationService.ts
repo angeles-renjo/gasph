@@ -1,4 +1,4 @@
-// src/core/services/LocationService.ts
+// core/services/LocationService.ts
 import {
   ILocationService,
   Coordinates,
@@ -6,24 +6,24 @@ import {
 import * as Location from 'expo-location';
 
 export class LocationService implements ILocationService {
+  // Default Manila coordinates (for fallback)
+  private DEFAULT_COORDINATES: Coordinates = {
+    latitude: 14.5995,
+    longitude: 120.9842, // Manila coordinates
+  };
+
   async getCurrentLocation(): Promise<Coordinates> {
-    // For development/testing we'll attempt to get the simulator's location
-    // instead of using hardcoded values
     try {
       // Request permissions
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         console.log(
-          'Location permission not granted, using fallback coordinates'
+          'Location permission not granted, using Manila coordinates'
         );
-        // Fallback to hardcoded coordinates if permissions aren't granted
-        return {
-          latitude: 14.65,
-          longitude: 120.98,
-        };
+        return this.DEFAULT_COORDINATES;
       }
 
-      // Get current position (from simulator in dev mode, or device in production)
+      // Get current position
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
@@ -39,12 +39,42 @@ export class LocationService implements ILocationService {
       };
     } catch (error) {
       console.error('Error getting current location:', error);
-      console.log('Using fallback coordinates due to error');
-      // Fallback to hardcoded coordinates on error
-      return {
-        latitude: 14.65,
-        longitude: 120.98,
-      };
+      console.log('Using Manila coordinates due to error');
+      return this.DEFAULT_COORDINATES;
+    }
+  }
+
+  // Get location name for display purposes
+  async getLocationName(coordinates: Coordinates): Promise<string> {
+    try {
+      // Check if these are the default Manila coordinates
+      if (
+        coordinates.latitude === this.DEFAULT_COORDINATES.latitude &&
+        coordinates.longitude === this.DEFAULT_COORDINATES.longitude
+      ) {
+        return 'Manila';
+      }
+
+      // Try to do reverse geocoding
+      const reverseGeocode = await Location.reverseGeocodeAsync({
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
+      });
+
+      if (reverseGeocode.length > 0) {
+        const location = reverseGeocode[0];
+        return (
+          location.city ||
+          location.subregion ||
+          location.region ||
+          'Unknown location'
+        );
+      }
+
+      return 'Unknown location';
+    } catch (error) {
+      console.error('Error getting location name:', error);
+      return 'Unknown location';
     }
   }
 
