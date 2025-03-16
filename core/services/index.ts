@@ -20,3 +20,6 @@ export const gasStationImportService = new GasStationImportService(
   googlePlacesService,
   stationService
 );
+
+export * from './PriceReportingService';
+export { priceReportingService } from './PriceReportingService';
