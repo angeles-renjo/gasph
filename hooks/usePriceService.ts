@@ -1,8 +1,9 @@
-// hooks/use_price_reporting.ts
+// hooks/usePriceService.ts
+// Let's update the usePriceReporting hook to support our new functionality
+
 import { useState, useEffect, useCallback } from 'react';
 import { Alert } from 'react-native';
-import { priceReportingService } from '@/core/services';
-import { StationPrice } from '@/core/services/PriceReportingService';
+import { supabase } from '@/utils/supabase';
 import { GasStation } from '@/core/models/GasStation';
 import { PriceReportData } from '@/components/price/PriceReportingModal';
 
@@ -13,9 +14,25 @@ interface User {
   display_name: string;
 }
 
+export interface StationPrice {
+  fuelType: string;
+  communityPrice: number | null;
+  reportId: string | null;
+  doeData: {
+    minPrice: number;
+    maxPrice: number;
+    commonPrice: number;
+  } | null;
+  verificationData: {
+    confirmedCount: number;
+    disputedCount: number;
+    lastUpdated: string;
+    reporterName?: string;
+  } | null;
+}
+
 /**
  * Custom hook for managing price reporting functionality
- * Follows Single Responsibility and Dependency Inversion principles
  */
 export function usePriceReporting(currentUser?: User | null) {
   const [isLoading, setIsLoading] = useState(false);
@@ -24,6 +41,16 @@ export function usePriceReporting(currentUser?: User | null) {
   const [currentFuelType, setCurrentFuelType] = useState<string | null>(null);
   const [initialPrice, setInitialPrice] = useState('');
   const [stationPrices, setStationPrices] = useState<StationPrice[]>([]);
+
+  // Mock user for demonstration
+  const mockUser = {
+    id: '12345',
+    email: 'demo@example.com',
+    display_name: 'Demo User',
+  };
+
+  // Use mock user if no user provided
+  const user = currentUser || mockUser;
 
   // Reset modal state when closed
   useEffect(() => {
@@ -35,29 +62,6 @@ export function usePriceReporting(currentUser?: User | null) {
   }, [isReportModalVisible]);
 
   /**
-   * Check if user is logged in and show alert if not
-   */
-  const checkUserLoggedIn = useCallback((): boolean => {
-    if (!currentUser) {
-      Alert.alert('Login Required', 'You need to log in to use this feature.', [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Log In',
-          onPress: () => {
-            // Navigate to login screen
-            // This would need to be implemented with your navigation system
-          },
-        },
-      ]);
-      return false;
-    }
-    return true;
-  }, [currentUser]);
-
-  /**
    * Open price reporting modal
    */
   const openReportModal = useCallback(
@@ -66,14 +70,12 @@ export function usePriceReporting(currentUser?: User | null) {
       fuelType: string | null = null,
       price: number | string = ''
     ) => {
-      if (!checkUserLoggedIn()) return;
-
       setCurrentStation(station);
       setCurrentFuelType(fuelType);
       setInitialPrice(price.toString());
       setIsReportModalVisible(true);
     },
-    [checkUserLoggedIn]
+    []
   );
 
   /**
@@ -88,19 +90,33 @@ export function usePriceReporting(currentUser?: User | null) {
    */
   const submitPriceReport = useCallback(
     async (reportData: PriceReportData) => {
-      if (!currentUser || !reportData.stationId) {
+      if (!reportData.stationId) {
         return;
       }
 
       setIsLoading(true);
 
       try {
-        await priceReportingService.submitPriceReport(
-          reportData.stationId,
-          reportData.fuelType,
-          reportData.price,
-          currentUser.id
-        );
+        // Calculate expiration time (24 hours from now)
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 24);
+
+        // Create the report
+        const { data, error } = await supabase
+          .from('user_price_reports')
+          .insert({
+            station_id: reportData.stationId,
+            fuel_type: reportData.fuelType,
+            price: reportData.price,
+            user_id: user.id,
+            reported_at: new Date().toISOString(),
+            expires_at: expiresAt.toISOString(),
+            upvotes: 1, // Start with 1 (the reporter's implicit upvote)
+            downvotes: 0,
+          })
+          .select();
+
+        if (error) throw error;
 
         Alert.alert(
           'Thank You!',
@@ -109,10 +125,7 @@ export function usePriceReporting(currentUser?: User | null) {
 
         // Refresh prices after submission
         if (currentStation) {
-          const updatedPrices = await priceReportingService.getStationPrices(
-            currentStation.id
-          );
-          setStationPrices(updatedPrices);
+          await getStationPrices(currentStation.id);
         }
 
         setIsReportModalVisible(false);
@@ -126,7 +139,7 @@ export function usePriceReporting(currentUser?: User | null) {
         setIsLoading(false);
       }
     },
-    [currentUser, currentStation]
+    [user, currentStation]
   );
 
   /**
@@ -134,23 +147,69 @@ export function usePriceReporting(currentUser?: User | null) {
    */
   const voteOnPrice = useCallback(
     async (reportId: string, isUpvote: boolean) => {
-      if (!checkUserLoggedIn()) return;
-
       setIsLoading(true);
 
       try {
-        await priceReportingService.voteOnPriceReport(
-          reportId,
-          isUpvote,
-          currentUser!.id // Safe to use ! here as we just checked with checkUserLoggedIn
-        );
+        // Check if user has already voted
+        const { data: existingVote } = await supabase
+          .from('user_price_votes')
+          .select('*')
+          .eq('report_id', reportId)
+          .eq('user_id', user.id)
+          .single();
+
+        // Get current report state
+        const { data: report } = await supabase
+          .from('user_price_reports')
+          .select('*')
+          .eq('id', reportId)
+          .single();
+
+        if (!report) {
+          throw new Error('Report not found');
+        }
+
+        // Calculate vote changes
+        let upvoteDelta = 0;
+        let downvoteDelta = 0;
+
+        if (existingVote) {
+          // Changing vote?
+          if (existingVote.is_upvote !== isUpvote) {
+            upvoteDelta = isUpvote ? 1 : -1;
+            downvoteDelta = isUpvote ? -1 : 1;
+
+            // Update vote record
+            await supabase
+              .from('user_price_votes')
+              .update({ is_upvote: isUpvote })
+              .eq('id', existingVote.id);
+          }
+        } else {
+          // New vote
+          upvoteDelta = isUpvote ? 1 : 0;
+          downvoteDelta = isUpvote ? 0 : 1;
+
+          // Create vote record
+          await supabase.from('user_price_votes').insert({
+            report_id: reportId,
+            user_id: user.id,
+            is_upvote: isUpvote,
+          });
+        }
+
+        // Update report vote counts
+        await supabase
+          .from('user_price_reports')
+          .update({
+            upvotes: report.upvotes + upvoteDelta,
+            downvotes: report.downvotes + downvoteDelta,
+          })
+          .eq('id', reportId);
 
         // Refresh prices after voting
         if (currentStation) {
-          const updatedPrices = await priceReportingService.getStationPrices(
-            currentStation.id
-          );
-          setStationPrices(updatedPrices);
+          await getStationPrices(currentStation.id);
         }
       } catch (error) {
         Alert.alert(
@@ -162,7 +221,7 @@ export function usePriceReporting(currentUser?: User | null) {
         setIsLoading(false);
       }
     },
-    [currentUser, currentStation, checkUserLoggedIn]
+    [user, currentStation]
   );
 
   /**
@@ -173,9 +232,125 @@ export function usePriceReporting(currentUser?: User | null) {
       setIsLoading(true);
 
       try {
-        const prices = await priceReportingService.getStationPrices(stationId);
-        setStationPrices(prices);
-        return prices;
+        // Get latest week_of date for DOE prices
+        const { data: latestWeek } = await supabase
+          .from('fuel_prices')
+          .select('week_of')
+          .order('week_of', { ascending: false })
+          .limit(1)
+          .single();
+
+        // Get station info for brand and city
+        const { data: station } = await supabase
+          .from('gas_stations')
+          .select('*')
+          .eq('id', stationId)
+          .single();
+
+        if (!station) {
+          throw new Error('Station not found');
+        }
+
+        // Get DOE prices for this station's brand and city
+        const { data: doePrices } = await supabase
+          .from('fuel_prices')
+          .select('*')
+          .eq('week_of', latestWeek?.week_of || '')
+          .eq('area', station.city)
+          .ilike('brand', station.brand);
+
+        // Create DOE prices lookup
+        const doeByFuelType: Record<string, any> = {};
+        (doePrices || []).forEach((price) => {
+          doeByFuelType[price.fuel_type] = {
+            minPrice: price.min_price,
+            maxPrice: price.max_price,
+            commonPrice: price.common_price,
+          };
+        });
+
+        // Get all community-reported prices for this station
+        const { data: communityPrices } = await supabase
+          .from('user_price_reports')
+          .select('*')
+          .eq('station_id', stationId)
+          .gte('expires_at', new Date().toISOString())
+          .order('reported_at', { ascending: false }); // Order by most recent first
+
+        // Process all fuel types (from both DOE and community)
+        const fuelTypes = new Set<string>();
+        (doePrices || []).forEach((price) => fuelTypes.add(price.fuel_type));
+        (communityPrices || []).forEach((price) =>
+          fuelTypes.add(price.fuel_type)
+        );
+
+        // Create result array
+        const results: StationPrice[] = [];
+
+        // For each fuel type, find the most relevant community price
+        for (const fuelType of fuelTypes) {
+          // Find community prices for this fuel type
+          const pricesForType = (communityPrices || []).filter(
+            (p) => p.fuel_type === fuelType
+          );
+
+          if (pricesForType.length > 0) {
+            // Sort by reported_at (most recent first)
+            // This is a change from the previous version which sorted by upvotes
+            pricesForType.sort(
+              (a, b) =>
+                new Date(b.reported_at).getTime() -
+                new Date(a.reported_at).getTime()
+            );
+
+            // Get most recent community price
+            const latestPrice = pricesForType[0];
+
+            // Format "time ago" for the report
+            const reportTime = new Date(latestPrice.reported_at);
+            const now = new Date();
+            const diffMinutes = Math.floor(
+              (now.getTime() - reportTime.getTime()) / (1000 * 60)
+            );
+
+            let lastUpdatedText: string;
+            if (diffMinutes < 60) {
+              lastUpdatedText = `${diffMinutes} minutes ago`;
+            } else if (diffMinutes < 24 * 60) {
+              const hours = Math.floor(diffMinutes / 60);
+              lastUpdatedText = `${hours} hour${hours > 1 ? 's' : ''} ago`;
+            } else {
+              const days = Math.floor(diffMinutes / (24 * 60));
+              lastUpdatedText = `${days} day${days > 1 ? 's' : ''} ago`;
+            }
+
+            // Add to results
+            results.push({
+              fuelType,
+              communityPrice: latestPrice.price,
+              reportId: latestPrice.id,
+              doeData: doeByFuelType[fuelType] || null,
+              verificationData: {
+                confirmedCount: latestPrice.upvotes,
+                disputedCount: latestPrice.downvotes,
+                lastUpdated: lastUpdatedText,
+                reporterName: 'Community User', // Placeholder - we would get real username
+              },
+            });
+          } else {
+            // No community price, just DOE data
+            results.push({
+              fuelType,
+              communityPrice: null,
+              reportId: null,
+              doeData: doeByFuelType[fuelType] || null,
+              verificationData: null,
+            });
+          }
+        }
+
+        setStationPrices(results);
+        return results;
       } catch (error) {
         console.error('Error getting station prices:', error);
         return [];
@@ -185,7 +360,6 @@ export function usePriceReporting(currentUser?: User | null) {
     },
     []
   );
-
   return {
     isLoading,
     isReportModalVisible,

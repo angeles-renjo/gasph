@@ -26,6 +26,7 @@ interface PriceReportingModalProps {
   stationName: string;
   stationId: string;
   initialPrice?: string;
+  selectedFuelType?: string;
   fuelTypes?: string[];
   isLoading?: boolean;
 }
@@ -41,6 +42,7 @@ const PriceReportingModal: React.FC<PriceReportingModalProps> = ({
   stationName,
   stationId,
   initialPrice = '',
+  selectedFuelType = '',
   fuelTypes = [
     'Diesel',
     'Gasoline (RON 91)',
@@ -50,22 +52,20 @@ const PriceReportingModal: React.FC<PriceReportingModalProps> = ({
   isLoading = false,
 }) => {
   const [price, setPrice] = useState<string>('');
-  const [selectedFuelType, setSelectedFuelType] = useState<string>(
-    fuelTypes[0]
-  );
+  const [fuelType, setFuelType] = useState<string>(fuelTypes[0]);
   const [error, setError] = useState<string>('');
 
-  // Reset form when modal opens
+  // Reset form when modal opens or props change
   useEffect(() => {
     if (visible) {
       setPrice(initialPrice);
-      setSelectedFuelType(fuelTypes[0]);
+      setFuelType(selectedFuelType || fuelTypes[0]);
       setError('');
     }
-  }, [visible, initialPrice, fuelTypes]);
+  }, [visible, initialPrice, selectedFuelType, fuelTypes]);
 
   const handlePriceChange = (text: string) => {
-    // Allow only numbers and one decimal point
+    // Allow only numbers and one decimal point with up to 2 decimal places
     if (/^\d*\.?\d{0,2}$/.test(text)) {
       setPrice(text);
       setError('');
@@ -91,7 +91,7 @@ const PriceReportingModal: React.FC<PriceReportingModalProps> = ({
 
     onSubmit({
       stationId,
-      fuelType: selectedFuelType,
+      fuelType,
       price: parseFloat(price),
     });
   };
@@ -125,14 +125,14 @@ const PriceReportingModal: React.FC<PriceReportingModalProps> = ({
                   key={type}
                   style={[
                     styles.fuelTypeButton,
-                    selectedFuelType === type && styles.selectedFuelType,
+                    fuelType === type && styles.selectedFuelType,
                   ]}
-                  onPress={() => setSelectedFuelType(type)}
+                  onPress={() => setFuelType(type)}
                 >
                   <Text
                     style={[
                       styles.fuelTypeText,
-                      selectedFuelType === type && styles.selectedFuelTypeText,
+                      fuelType === type && styles.selectedFuelTypeText,
                     ]}
                   >
                     {type}
