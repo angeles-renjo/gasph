@@ -349,6 +349,24 @@ export class PriceReportingService
       throw error;
     }
   }
+  /**
+   * Get all active price reports with good verification stats
+   */
+  async getActivePricesWithStats(): Promise<any[]> {
+    try {
+      // Query our combined_prices view
+      const { data, error } = await supabase
+        .from('combined_prices')
+        .select('*')
+        .order('confidence', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error getting active prices with stats:', error);
+      throw error;
+    }
+  }
 }
 
 // Export a singleton instance

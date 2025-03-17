@@ -163,7 +163,8 @@ const PriceReportingModal: React.FC<PriceReportingModalProps> = ({
             />
             <Text style={styles.disclaimerText}>
               By submitting, you confirm this is the current price you observed
-              at this station.
+              at this station. Community prices are reset weekly when new
+              official data is published.
             </Text>
           </View>
 

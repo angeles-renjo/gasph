@@ -76,6 +76,8 @@ export function testPriceStationMatching(
         stationId: matchingStation?.id || '',
         area: price.area,
         distance: matchingStation?.distance,
+        source: 'doe', // Add this line - all prices in this function are DOE prices
+        confidence: 1.0, // Add this line - assume high confidence for testing
       };
     });
 

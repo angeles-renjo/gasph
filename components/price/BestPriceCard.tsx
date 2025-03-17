@@ -68,6 +68,55 @@ const BestPriceCard: React.FC<BestPriceCardProps> = ({
       ? displayName.substring(0, 18) + '...'
       : displayName;
 
+  // Function to render source badge
+  const renderSourceBadge = () => {
+    if (price.source === 'community') {
+      return (
+        <View style={styles.sourceBadge}>
+          <MaterialIcons name='people' size={12} color='#fff' />
+          <Text style={styles.sourceBadgeText}>Community</Text>
+        </View>
+      );
+    } else {
+      return (
+        <View style={[styles.sourceBadge, styles.doeBadge]}>
+          <MaterialIcons name='verified' size={12} color='#fff' />
+          <Text style={styles.sourceBadgeText}>Official</Text>
+        </View>
+      );
+    }
+  };
+
+  // Function to render confidence indicator
+  const renderConfidenceIndicator = () => {
+    if (price.source === 'community') {
+      const confidenceLevel =
+        price.confidence >= 0.8
+          ? 'High'
+          : price.confidence >= 0.5
+          ? 'Medium'
+          : 'Low';
+
+      const confidenceColor =
+        price.confidence >= 0.8
+          ? '#4caf50'
+          : price.confidence >= 0.5
+          ? '#ff9800'
+          : '#f44336';
+
+      return (
+        <View
+          style={[styles.confidenceIndicator, { borderColor: confidenceColor }]}
+        >
+          <Text style={[styles.confidenceText, { color: confidenceColor }]}>
+            {confidenceLevel}
+          </Text>
+        </View>
+      );
+    }
+    return null;
+  };
+
   return (
     <TouchableOpacity
       style={[styles.card, { backgroundColor: getBackgroundColor() }]}
@@ -81,17 +130,24 @@ const BestPriceCard: React.FC<BestPriceCardProps> = ({
       </View>
 
       <View style={styles.contentContainer}>
-        <View style={styles.priceContainer}>
-          <Text style={styles.price}>{formatCurrency(price.price)}</Text>
-          <Text style={styles.stationName}>{displayTitle}</Text>
+        <View style={styles.headerRow}>
+          <View style={styles.priceContainer}>
+            <Text style={styles.price}>{formatCurrency(price.price)}</Text>
+            <Text style={styles.stationName}>{displayTitle}</Text>
+          </View>
+          {renderSourceBadge()}
         </View>
 
         <View style={styles.detailsContainer}>
           <Text style={styles.area}>{price.area}</Text>
 
-          <View style={styles.distanceContainer}>
-            <MaterialIcons name='directions-car' size={14} color='#666' />
-            <Text style={styles.distance}>{formatDistance()}</Text>
+          <View style={styles.rightDetails}>
+            {renderConfidenceIndicator()}
+
+            <View style={styles.distanceContainer}>
+              <MaterialIcons name='directions-car' size={14} color='#666' />
+              <Text style={styles.distance}>{formatDistance()}</Text>
+            </View>
           </View>
         </View>
 
@@ -145,10 +201,15 @@ const styles = StyleSheet.create({
   contentContainer: {
     flex: 1,
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
   priceContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
   },
   price: {
     fontSize: 18,
@@ -163,6 +224,10 @@ const styles = StyleSheet.create({
   detailsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  rightDetails: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
   area: {
@@ -191,6 +256,34 @@ const styles = StyleSheet.create({
   },
   chevron: {
     marginLeft: 8,
+  },
+  sourceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2196F3',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  doeBadge: {
+    backgroundColor: '#4CAF50',
+  },
+  sourceBadgeText: {
+    fontSize: 10,
+    color: '#fff',
+    marginLeft: 2,
+    fontWeight: '500',
+  },
+  confidenceIndicator: {
+    borderWidth: 1,
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    marginRight: 6,
+  },
+  confidenceText: {
+    fontSize: 10,
+    fontWeight: '500',
   },
 });
 

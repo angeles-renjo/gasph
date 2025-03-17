@@ -24,6 +24,8 @@ import PriceCard from '@/components/price/PriceCard';
 import PriceReportingModal from '@/components/price/PriceReportingModal';
 import { supabase } from '@/utils/supabase';
 import { FuelPrice } from '@/core/models/FuelPrice';
+// At the top of the file, add:
+import { usePriceCycle } from '@/hooks/usePriceCycle';
 
 // Mock user for demonstration
 const DEMO_USER = {
@@ -37,6 +39,7 @@ export default function StationDetailsScreen() {
   const { data: station, loading, error } = useStationById(id);
   const [doePrices, setDoePrices] = useState<FuelPrice[]>([]);
   const [loadingPrices, setLoadingPrices] = useState(false);
+  const { currentCycle, daysRemaining } = usePriceCycle();
 
   // Use the price reporting hook
   const {
@@ -149,6 +152,19 @@ export default function StationDetailsScreen() {
     }
   };
 
+  const renderCycleInfo = () => {
+    if (!currentCycle) return null;
+
+    return (
+      <View style={styles.cycleInfoContainer}>
+        <MaterialIcons name='update' size={16} color='#666' />
+        <Text style={styles.cycleInfoText}>
+          Price reports reset in {daysRemaining} days
+        </Text>
+      </View>
+    );
+  };
+
   const renderAmenities = () => {
     if (!station.amenities || station.amenities.length === 0) {
       return <Text style={styles.noData}>No amenities listed</Text>;
@@ -259,6 +275,7 @@ export default function StationDetailsScreen() {
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Community Prices</Text>
+          {renderCycleInfo()}
           <Pressable
             style={styles.addPriceButton}
             onPress={() => openReportModal(station)}
@@ -545,5 +562,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginLeft: 8,
+  },
+  cycleInfoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    marginLeft: 'auto',
+    marginRight: 8,
+  },
+  cycleInfoText: {
+    fontSize: 12,
+    color: '#666',
+    marginLeft: 4,
   },
 });

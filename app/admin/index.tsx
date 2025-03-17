@@ -149,6 +149,14 @@ export default function AdminDashboardScreen() {
           </TouchableOpacity>
         </View>
 
+        <View style={styles.section}>
+          <Text>go to manage cycle</Text>
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => router.push('/admin/manage-cycle')}
+          ></TouchableOpacity>
+        </View>
+
         <View style={styles.footer}>
           <Text style={styles.footerText}>
             This is a restricted admin area. All actions are logged.
