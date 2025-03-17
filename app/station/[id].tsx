@@ -1,4 +1,4 @@
-// app/station/[id].tsx
+// app/station/[id].tsx - Enhanced with DOE prices
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -7,7 +7,6 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
-  FlatList,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useStationById } from '@/hooks/useStationService';
@@ -23,6 +22,8 @@ import {
 import { FUEL_TYPES } from '@/utils/constants';
 import PriceCard from '@/components/price/PriceCard';
 import PriceReportingModal from '@/components/price/PriceReportingModal';
+import { supabase } from '@/utils/supabase';
+import { FuelPrice } from '@/core/models/FuelPrice';
 
 // Mock user for demonstration
 const DEMO_USER = {
@@ -34,6 +35,8 @@ const DEMO_USER = {
 export default function StationDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: station, loading, error } = useStationById(id);
+  const [doePrices, setDoePrices] = useState<FuelPrice[]>([]);
+  const [loadingPrices, setLoadingPrices] = useState(false);
 
   // Use the price reporting hook
   const {
@@ -49,6 +52,49 @@ export default function StationDetailsScreen() {
     voteOnPrice,
     getStationPrices,
   } = usePriceReporting(DEMO_USER);
+
+  // Load DOE prices when station data is available
+  useEffect(() => {
+    const fetchDoePrices = async () => {
+      if (!station) return;
+
+      try {
+        setLoadingPrices(true);
+
+        // Get latest week
+        const { data: latestWeek } = await supabase
+          .from('fuel_prices')
+          .select('week_of')
+          .order('week_of', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (!latestWeek) {
+          setLoadingPrices(false);
+          return;
+        }
+
+        // Get matching prices for this station's brand and city
+        const { data } = await supabase
+          .from('fuel_prices')
+          .select('*')
+          .eq('week_of', latestWeek.week_of)
+          .eq('area', station.city)
+          .ilike('brand', station.brand)
+          .order('fuel_type');
+
+        if (data && data.length > 0) {
+          setDoePrices(data);
+        }
+      } catch (error) {
+        console.error('Error fetching DOE prices:', error);
+      } finally {
+        setLoadingPrices(false);
+      }
+    };
+
+    fetchDoePrices();
+  }, [station]);
 
   // Load station prices when station data is available
   useEffect(() => {
@@ -119,6 +165,48 @@ export default function StationDetailsScreen() {
     );
   };
 
+  // Render the DOE prices section
+  const renderDoePrices = () => {
+    if (loadingPrices) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size='small' color='#2a9d8f' />
+          <Text style={styles.loadingText}>Loading official prices...</Text>
+        </View>
+      );
+    }
+
+    if (doePrices.length === 0) {
+      return (
+        <Text style={styles.noData}>
+          No official DOE price data available for this station.
+        </Text>
+      );
+    }
+
+    return (
+      <View style={styles.doePricesContainer}>
+        <View style={styles.doeBadge}>
+          <Text style={styles.doeBadgeText}>DOE Official Prices</Text>
+        </View>
+
+        {doePrices.map((price) => (
+          <View key={price.id} style={styles.doePriceItem}>
+            <Text style={styles.doeFuelType}>{price.fuel_type}</Text>
+            <Text style={styles.doePrice}>
+              {formatCurrency(price.common_price)}
+            </Text>
+          </View>
+        ))}
+
+        <Text style={styles.doeNoteText}>
+          Source: Department of Energy Price Monitoring (
+          {formatDate(doePrices[0]?.week_of)})
+        </Text>
+      </View>
+    );
+  };
+
   return (
     <ScrollView style={styles.container}>
       <Pressable style={styles.backButton} onPress={() => router.back()}>
@@ -139,9 +227,16 @@ export default function StationDetailsScreen() {
       <Text style={styles.name}>{station.name}</Text>
       <Text style={styles.address}>{station.address}</Text>
 
+      {/* Official DOE Prices Section */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Official Prices</Text>
+        {renderDoePrices()}
+      </View>
+
+      {/* Community Reported Prices Section */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Fuel Prices</Text>
+          <Text style={styles.sectionTitle}>Community Prices</Text>
           <Pressable
             style={styles.addPriceButton}
             onPress={() => openReportModal(station)}
@@ -171,7 +266,7 @@ export default function StationDetailsScreen() {
         ) : (
           <View style={styles.noPricesContainer}>
             <Text style={styles.noData}>
-              No price information available for this station.
+              No community price reports yet for this station.
             </Text>
             <Pressable
               style={styles.reportFirstButton}
@@ -362,6 +457,60 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '500',
+    marginLeft: 8,
+  },
+  // DOE Prices section
+  doePricesContainer: {
+    backgroundColor: '#f8f9fa',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  doeBadge: {
+    backgroundColor: '#e3f2fd',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    marginBottom: 12,
+  },
+  doeBadgeText: {
+    fontSize: 12,
+    color: '#1976d2',
+    fontWeight: '500',
+  },
+  doePriceItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  doeFuelType: {
+    fontSize: 15,
+    color: '#424242',
+  },
+  doePrice: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1976d2',
+  },
+  doeNoteText: {
+    fontSize: 12,
+    color: '#757575',
+    fontStyle: 'italic',
+    marginTop: 12,
+    textAlign: 'right',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#666',
     marginLeft: 8,
   },
 });

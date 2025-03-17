@@ -1,3 +1,4 @@
+// components/station/StationCard.tsx
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { GasStation } from '@/core/models/GasStation';
@@ -20,7 +21,7 @@ export const StationCard: React.FC<StationCardProps> = ({
   const [prices, setPrices] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Fetch prices for this station
+  // Fetch prices for this station using brand + city matching
   useEffect(() => {
     const fetchPrices = async () => {
       if (!station) return;
@@ -30,7 +31,6 @@ export const StationCard: React.FC<StationCardProps> = ({
         // Get latest week_of date
         const { data: latestWeek } = await supabase
           .from('fuel_prices')
-          // Continued from previous section
           .select('week_of')
           .order('week_of', { ascending: false })
           .limit(1)
@@ -41,13 +41,13 @@ export const StationCard: React.FC<StationCardProps> = ({
           return;
         }
 
-        // Get prices for this station's brand and city
+        // Get prices for this station's brand and city - exact match
         const { data } = await supabase
           .from('fuel_prices')
           .select('*')
           .eq('week_of', latestWeek.week_of)
           .eq('area', station.city)
-          .ilike('brand', station.brand)
+          .ilike('brand', station.brand) // Case-insensitive match for brand
           .order('fuel_type');
 
         // Get only the main fuel types
@@ -122,7 +122,7 @@ export const StationCard: React.FC<StationCardProps> = ({
     <Pressable style={styles.card} onPress={onPress}>
       <View style={styles.header}>
         <Text style={styles.brand}>{station.brand}</Text>
-        <Text style={styles.distance}>{formatDistance(station.distance)}</Text>
+        <Text style={styles.distance}>{formatDistance(distance)}</Text>
       </View>
 
       <Text style={styles.name}>{station.name}</Text>
@@ -134,22 +134,25 @@ export const StationCard: React.FC<StationCardProps> = ({
           <ActivityIndicator size='small' color='#2a9d8f' />
           <Text style={styles.loadingText}>Loading prices...</Text>
         </View>
-      ) : (
-        prices.length > 0 && (
-          <View style={styles.priceContainer}>
-            {prices.map((price) => (
-              <View key={price.id} style={styles.priceItem}>
-                <Text style={styles.fuelType}>
-                  {price.fuel_type.replace('Gasoline ', '')}
-                </Text>
-                <Text style={styles.price}>
-                  {formatCurrency(price.common_price)}
-                </Text>
-              </View>
-            ))}
+      ) : prices.length > 0 ? (
+        <View style={styles.priceContainer}>
+          {/* Show DOE price badge */}
+          <View style={styles.doeBadge}>
+            <Text style={styles.doeBadgeText}>DOE Official Prices</Text>
           </View>
-        )
-      )}
+
+          {prices.map((price) => (
+            <View key={price.id} style={styles.priceItem}>
+              <Text style={styles.fuelType}>
+                {price.fuel_type.replace('Gasoline ', '')}
+              </Text>
+              <Text style={styles.price}>
+                {formatCurrency(price.common_price)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
 
       <View style={styles.footer}>
         <View style={styles.statusContainer}>
@@ -245,19 +248,33 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   priceContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
     marginTop: 8,
     marginBottom: 12,
     padding: 8,
     backgroundColor: '#f5f7fa',
     borderRadius: 4,
   },
+  doeBadge: {
+    backgroundColor: '#e3f2fd',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+  doeBadgeText: {
+    fontSize: 10,
+    color: '#1976d2',
+    fontWeight: '500',
+  },
   priceItem: {
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
   },
   fuelType: {
-    fontSize: 12,
+    fontSize: 14,
     color: '#666',
   },
   price: {

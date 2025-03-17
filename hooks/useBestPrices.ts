@@ -126,9 +126,10 @@ export function useBestPrices() {
       ];
       console.log(`Available fuel types: ${fuelTypes.join(', ')}`);
 
-      // Create a map of brand+city to station for efficient lookups
+      // Create a map of brand+city to station for better lookups
       const stationMap: Record<string, GasStation> = {};
       nearbyStations.forEach((station) => {
+        // Use lowercase for case-insensitive matching
         const key = `${station.brand.toLowerCase()}_${station.city.toLowerCase()}`;
         stationMap[key] = station;
       });
@@ -150,18 +151,24 @@ export function useBestPrices() {
         // Take the top 5 or fewer
         const topPrices = sortedPrices.slice(0, 5);
 
-        // Map to best items with station matching
+        // Map to best items with improved station matching
         const bestItems: BestPriceItem[] = topPrices.map((price) => {
-          // Try to find a matching nearby station
+          // Improved station matching using brand + area
           const key = `${price.brand.toLowerCase()}_${price.area.toLowerCase()}`;
           const matchingStation = stationMap[key];
+
+          // If we found a matching station, use its name and ID
+          // Otherwise create a descriptive name using brand and area
+          const stationName = matchingStation
+            ? matchingStation.name
+            : `${price.brand} - ${price.area}`;
 
           return {
             id: price.id,
             fuelType: price.fuel_type,
             price: price.common_price,
             brand: price.brand,
-            stationName: matchingStation?.name || price.brand,
+            stationName: stationName,
             stationId: matchingStation?.id || '',
             area: price.area,
             distance: matchingStation?.distance,
