@@ -118,6 +118,64 @@ export const StationCard: React.FC<StationCardProps> = ({
     }
   };
 
+  // Simplified function to get display name for fuel type
+  const getShortFuelTypeName = (fuelType: string): string => {
+    if (fuelType.includes('Diesel')) return 'Diesel';
+    if (fuelType.includes('RON 95')) return 'RON 95';
+    if (fuelType.includes('RON 91')) return 'RON 91';
+    if (fuelType.includes('RON 97')) return 'RON 97';
+    if (fuelType.includes('RON 100')) return 'RON 100';
+    return fuelType;
+  };
+
+  // Render the prices in a columnar format
+  const renderColumnPrices = () => {
+    if (loading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size='small' color='#2a9d8f' />
+          <Text style={styles.loadingText}>Loading prices...</Text>
+        </View>
+      );
+    }
+
+    if (prices.length === 0) {
+      return null;
+    }
+
+    return (
+      <View style={styles.priceContainer}>
+        <Text style={styles.priceTitle}>Official Prices</Text>
+
+        {/* Header row for the columns */}
+        <View style={styles.priceHeaderRow}>
+          <Text style={styles.fuelTypeHeader}></Text>
+          <Text style={styles.priceHeader}>Min</Text>
+          <Text style={styles.priceHeader}>Common</Text>
+          <Text style={styles.priceHeader}>Max</Text>
+        </View>
+
+        {/* One row per fuel type */}
+        {prices.map((price) => (
+          <View key={price.id} style={styles.priceRow}>
+            <Text style={styles.fuelType}>
+              {getShortFuelTypeName(price.fuel_type)}:
+            </Text>
+            <Text style={styles.price}>
+              {price.min_price ? formatCurrency(price.min_price) : '--'}
+            </Text>
+            <Text style={styles.price}>
+              {price.common_price ? formatCurrency(price.common_price) : '--'}
+            </Text>
+            <Text style={styles.price}>
+              {price.max_price ? formatCurrency(price.max_price) : '--'}
+            </Text>
+          </View>
+        ))}
+      </View>
+    );
+  };
+
   return (
     <Pressable style={styles.card} onPress={onPress}>
       <View style={styles.header}>
@@ -129,30 +187,7 @@ export const StationCard: React.FC<StationCardProps> = ({
       <Text style={styles.address}>{station.address}</Text>
 
       {/* Price information section */}
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size='small' color='#2a9d8f' />
-          <Text style={styles.loadingText}>Loading prices...</Text>
-        </View>
-      ) : prices.length > 0 ? (
-        <View style={styles.priceContainer}>
-          {/* Show DOE price badge */}
-          <View style={styles.doeBadge}>
-            <Text style={styles.doeBadgeText}>DOE Official Prices</Text>
-          </View>
-
-          {prices.map((price) => (
-            <View key={price.id} style={styles.priceItem}>
-              <Text style={styles.fuelType}>
-                {price.fuel_type.replace('Gasoline ', '')}
-              </Text>
-              <Text style={styles.price}>
-                {formatCurrency(price.common_price)}
-              </Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
+      {renderColumnPrices()}
 
       <View style={styles.footer}>
         <View style={styles.statusContainer}>
@@ -235,7 +270,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#00796b',
   },
-  // Price section styles
+  // Loading styles
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -247,39 +282,58 @@ const styles = StyleSheet.create({
     color: '#666',
     marginLeft: 8,
   },
+  // New columnar price styles
   priceContainer: {
     marginTop: 8,
     marginBottom: 12,
-    padding: 8,
+    padding: 10,
     backgroundColor: '#f5f7fa',
-    borderRadius: 4,
+    borderRadius: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: '#2a9d8f',
   },
-  doeBadge: {
-    backgroundColor: '#e3f2fd',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 4,
+  priceTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#2a9d8f',
     marginBottom: 8,
   },
-  doeBadgeText: {
-    fontSize: 10,
-    color: '#1976d2',
-    fontWeight: '500',
-  },
-  priceItem: {
-    alignItems: 'center',
+  priceHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginBottom: 6,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  fuelTypeHeader: {
+    flex: 1.5,
+    fontSize: 12,
+    color: '#666',
+  },
+  priceHeader: {
+    flex: 1,
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+  },
+  priceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingVertical: 4,
   },
   fuelType: {
+    flex: 1.5,
     fontSize: 14,
-    color: '#666',
+    color: '#424242',
+    fontWeight: '500',
   },
   price: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    flex: 1,
+    fontSize: 14,
     color: '#2a9d8f',
+    textAlign: 'center',
+    fontWeight: '500',
   },
 });

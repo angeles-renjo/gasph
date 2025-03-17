@@ -1,4 +1,4 @@
-// app/station/[id].tsx - Enhanced with DOE prices
+// app/station/[id].tsx - With column-format prices
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -165,8 +165,18 @@ export default function StationDetailsScreen() {
     );
   };
 
-  // Render the DOE prices section
-  const renderDoePrices = () => {
+  // Simplified function to get display name for fuel type
+  const getShortFuelTypeName = (fuelType: string): string => {
+    if (fuelType.includes('Diesel')) return 'Diesel';
+    if (fuelType.includes('RON 95')) return 'RON 95';
+    if (fuelType.includes('RON 91')) return 'RON 91';
+    if (fuelType.includes('RON 97')) return 'RON 97';
+    if (fuelType.includes('RON 100')) return 'RON 100';
+    return fuelType;
+  };
+
+  // Render the official prices section with the column format
+  const renderOfficialPrices = () => {
     if (loadingPrices) {
       return (
         <View style={styles.loadingContainer}>
@@ -179,29 +189,41 @@ export default function StationDetailsScreen() {
     if (doePrices.length === 0) {
       return (
         <Text style={styles.noData}>
-          No official DOE price data available for this station.
+          No official price data available for this station.
         </Text>
       );
     }
 
     return (
-      <View style={styles.doePricesContainer}>
-        <View style={styles.doeBadge}>
-          <Text style={styles.doeBadgeText}>DOE Official Prices</Text>
+      <View style={styles.officialPricesContainer}>
+        {/* Header row for the columns */}
+        <View style={styles.priceHeaderRow}>
+          <Text style={styles.fuelTypeHeader}></Text>
+          <Text style={styles.priceHeader}>Min</Text>
+          <Text style={styles.priceHeader}>Common</Text>
+          <Text style={styles.priceHeader}>Max</Text>
         </View>
 
+        {/* One row per fuel type */}
         {doePrices.map((price) => (
-          <View key={price.id} style={styles.doePriceItem}>
-            <Text style={styles.doeFuelType}>{price.fuel_type}</Text>
-            <Text style={styles.doePrice}>
-              {formatCurrency(price.common_price)}
+          <View key={price.id} style={styles.priceRow}>
+            <Text style={styles.fuelType}>
+              {getShortFuelTypeName(price.fuel_type)}:
+            </Text>
+            <Text style={styles.price}>
+              {price.min_price ? formatCurrency(price.min_price) : '--'}
+            </Text>
+            <Text style={styles.price}>
+              {price.common_price ? formatCurrency(price.common_price) : '--'}
+            </Text>
+            <Text style={styles.price}>
+              {price.max_price ? formatCurrency(price.max_price) : '--'}
             </Text>
           </View>
         ))}
 
-        <Text style={styles.doeNoteText}>
-          Source: Department of Energy Price Monitoring (
-          {formatDate(doePrices[0]?.week_of)})
+        <Text style={styles.officialNoteText}>
+          As of {formatDate(doePrices[0]?.week_of)}
         </Text>
       </View>
     );
@@ -227,10 +249,10 @@ export default function StationDetailsScreen() {
       <Text style={styles.name}>{station.name}</Text>
       <Text style={styles.address}>{station.address}</Text>
 
-      {/* Official DOE Prices Section */}
+      {/* Official Prices Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Official Prices</Text>
-        {renderDoePrices()}
+        {renderOfficialPrices()}
       </View>
 
       {/* Community Reported Prices Section */}
@@ -459,43 +481,54 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginLeft: 8,
   },
-  // DOE Prices section
-  doePricesContainer: {
+  // Column price format styles
+  officialPricesContainer: {
     backgroundColor: '#f8f9fa',
     padding: 12,
     borderRadius: 8,
     marginTop: 8,
   },
-  doeBadge: {
-    backgroundColor: '#e3f2fd',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    marginBottom: 12,
-  },
-  doeBadgeText: {
-    fontSize: 12,
-    color: '#1976d2',
-    fontWeight: '500',
-  },
-  doePriceItem: {
+  priceHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 8,
+    marginBottom: 6,
+    paddingBottom: 4,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
   },
-  doeFuelType: {
-    fontSize: 15,
+  fuelTypeHeader: {
+    flex: 1.5,
+    fontSize: 12,
+    color: '#666',
+  },
+  priceHeader: {
+    flex: 1,
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+  },
+  priceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  fuelType: {
+    flex: 1.5,
+    fontSize: 14,
     color: '#424242',
+    fontWeight: '500',
   },
-  doePrice: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1976d2',
+  price: {
+    flex: 1,
+    fontSize: 14,
+    color: '#2a9d8f',
+    textAlign: 'center',
+    fontWeight: '500',
   },
-  doeNoteText: {
+  officialNoteText: {
     fontSize: 12,
     color: '#757575',
     fontStyle: 'italic',
