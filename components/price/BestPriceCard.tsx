@@ -58,6 +58,21 @@ const BestPriceCard: React.FC<BestPriceCardProps> = ({
     return `${price.distance.toFixed(1)} km`;
   };
 
+  // Format fuel type to handle Diesel vs Diesel Plus
+  const formatFuelType = (fuelType: string) => {
+    // Check if it's a diesel type and add appropriate suffix
+    if (fuelType.toLowerCase() === 'diesel') {
+      // For regular diesel, no change needed
+      return 'Diesel';
+    } else if (
+      fuelType.toLowerCase().includes('diesel') &&
+      fuelType.toLowerCase().includes('plus')
+    ) {
+      return 'Diesel Plus';
+    }
+    return fuelType;
+  };
+
   // Determine if we have enough station data to show the detail page
   const hasStationDetails = !!price.stationId;
 
@@ -79,9 +94,9 @@ const BestPriceCard: React.FC<BestPriceCardProps> = ({
       );
     } else {
       return (
-        <View style={[styles.sourceBadge, styles.doeBadge]}>
-          <MaterialIcons name='verified' size={12} color='#fff' />
-          <Text style={styles.sourceBadgeText}>Official</Text>
+        <View style={styles.refDataBadge}>
+          <MaterialIcons name='info-outline' size={12} color='#fff' />
+          <Text style={styles.sourceBadgeText}>DOE Ref. Data</Text>
         </View>
       );
     }
@@ -135,21 +150,29 @@ const BestPriceCard: React.FC<BestPriceCardProps> = ({
             <Text style={styles.price}>{formatCurrency(price.price)}</Text>
             <Text style={styles.stationName}>{displayTitle}</Text>
           </View>
-          {renderSourceBadge()}
         </View>
 
         <View style={styles.detailsContainer}>
-          <Text style={styles.area}>{price.area}</Text>
-
-          <View style={styles.rightDetails}>
-            {renderConfidenceIndicator()}
-
+          <View style={styles.locationInfo}>
+            <Text style={styles.area}>{price.area}</Text>
             <View style={styles.distanceContainer}>
               <MaterialIcons name='directions-car' size={14} color='#666' />
               <Text style={styles.distance}>{formatDistance()}</Text>
             </View>
           </View>
+
+          <View style={styles.badgeContainer}>
+            {renderConfidenceIndicator()}
+            {renderSourceBadge()}
+          </View>
         </View>
+
+        {/* Show fuel type if it's needed to distinguish between multiple types */}
+        {price.fuelType && price.fuelType.toLowerCase().includes('diesel') && (
+          <Text style={styles.fuelTypeLabel}>
+            {formatFuelType(price.fuelType)}
+          </Text>
+        )}
 
         {!hasStationDetails && (
           <Text style={styles.noStationText}>No station details available</Text>
@@ -179,7 +202,7 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    padding: 12,
     borderRadius: 8,
     marginBottom: 8,
     shadowColor: '#000',
@@ -189,8 +212,8 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   rankContainer: {
-    marginRight: 12,
-    width: 36,
+    marginRight: 8,
+    width: 30,
     alignItems: 'center',
   },
   rankText: {
@@ -210,6 +233,7 @@ const styles = StyleSheet.create({
   priceContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
   },
   price: {
     fontSize: 18,
@@ -220,11 +244,20 @@ const styles = StyleSheet.create({
   stationName: {
     fontSize: 16,
     fontWeight: '500',
+    flex: 1,
   },
   detailsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  locationInfo: {
+    flex: 1,
+  },
+  badgeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
   },
   rightDetails: {
     flexDirection: 'row',
@@ -233,14 +266,11 @@ const styles = StyleSheet.create({
   area: {
     fontSize: 14,
     color: '#666',
+    marginBottom: 2,
   },
   distanceContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0f0f0',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
   },
   distance: {
     fontSize: 14,
@@ -254,6 +284,12 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 2,
   },
+  fuelTypeLabel: {
+    fontSize: 12,
+    color: '#2a9d8f',
+    fontWeight: '500',
+    marginTop: 2,
+  },
   chevron: {
     marginLeft: 8,
   },
@@ -261,12 +297,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#2196F3',
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
     paddingVertical: 2,
     borderRadius: 4,
   },
-  doeBadge: {
-    backgroundColor: '#4CAF50',
+  refDataBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#607D8B',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   sourceBadgeText: {
     fontSize: 10,
@@ -279,7 +320,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     paddingHorizontal: 4,
     paddingVertical: 1,
-    marginRight: 6,
+    marginRight: 4,
   },
   confidenceText: {
     fontSize: 10,

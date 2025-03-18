@@ -27,6 +27,11 @@ import { FuelPrice } from '@/core/models/FuelPrice';
 import { usePriceCycle } from '@/hooks/usePriceCycle';
 import { Alert } from 'react-native';
 
+// Extended FuelPrice type to include display type
+interface ExtendedFuelPrice extends FuelPrice {
+  display_type?: string;
+}
+
 export default function StationDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: station, loading, error } = useStationById(id);
@@ -158,7 +163,7 @@ export default function StationDetailsScreen() {
     }
   };
 
-  // app/station/[id].tsx - update renderCycleInfo function
+  // Render price cycle info
   const renderCycleInfo = () => {
     if (!currentCycle) {
       // Return null or a default message when no cycle exists
@@ -207,7 +212,7 @@ export default function StationDetailsScreen() {
       return (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size='small' color='#2a9d8f' />
-          <Text style={styles.loadingText}>Loading official prices...</Text>
+          <Text style={styles.loadingText}>Loading reference data...</Text>
         </View>
       );
     }
@@ -215,10 +220,48 @@ export default function StationDetailsScreen() {
     if (doePrices.length === 0) {
       return (
         <Text style={styles.noData}>
-          No official price data available for this station.
+          No reference price data available for this station.
         </Text>
       );
     }
+
+    // Process diesel types to distinguish between regular and plus
+    const processFuelTypes = (prices: FuelPrice[]) => {
+      // Create a map to track diesel occurrences
+      const dieselOccurrences = prices.filter((p) =>
+        p.fuel_type.toLowerCase().includes('diesel')
+      ).length;
+
+      let dieselCount = 0;
+
+      return prices.map((price) => {
+        // Make a copy to avoid modifying the original
+        const processedPrice = { ...price } as ExtendedFuelPrice;
+
+        // If this is a diesel type and we have multiple diesel entries
+        if (
+          price.fuel_type.toLowerCase().includes('diesel') &&
+          dieselOccurrences > 1
+        ) {
+          dieselCount++;
+
+          // Determine if this is regular diesel or diesel plus based on price
+          // Usually, Diesel Plus is more expensive than regular Diesel
+          if (dieselCount === 1) {
+            processedPrice.display_type = 'Diesel';
+          } else {
+            processedPrice.display_type = 'Diesel Plus';
+          }
+        } else {
+          processedPrice.display_type = getShortFuelTypeName(price.fuel_type);
+        }
+
+        return processedPrice;
+      });
+    };
+
+    // Process the prices to handle multiple diesel types
+    const processedPrices = processFuelTypes(doePrices);
 
     return (
       <View style={styles.officialPricesContainer}>
@@ -231,11 +274,9 @@ export default function StationDetailsScreen() {
         </View>
 
         {/* One row per fuel type */}
-        {doePrices.map((price) => (
+        {processedPrices.map((price) => (
           <View key={price.id} style={styles.priceRow}>
-            <Text style={styles.fuelType}>
-              {getShortFuelTypeName(price.fuel_type)}:
-            </Text>
+            <Text style={styles.fuelType}>{price.display_type}:</Text>
             <Text style={styles.price}>
               {price.min_price ? formatCurrency(price.min_price) : '--'}
             </Text>
@@ -274,6 +315,7 @@ export default function StationDetailsScreen() {
     return true;
     */
   };
+
   return (
     <ScrollView style={styles.container}>
       <Pressable style={styles.backButton} onPress={() => router.back()}>
@@ -294,16 +336,19 @@ export default function StationDetailsScreen() {
       <Text style={styles.name}>{station.name}</Text>
       <Text style={styles.address}>{station.address}</Text>
 
-      {/* Official Prices Section */}
+      {/* DOE Reference Data Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Official Prices</Text>
+        <Text style={styles.sectionTitle}>DOE Reference Data</Text>
         {renderOfficialPrices()}
       </View>
 
       {/* Community Reported Prices Section */}
       <View style={styles.section}>
-        <View style={styles.sectionHeader}>
+        <View style={styles.sectionTitleContainer}>
           <Text style={styles.sectionTitle}>Community Prices</Text>
+        </View>
+
+        <View style={styles.sectionHeaderControls}>
           {renderCycleInfo()}
           <Pressable
             style={styles.addPriceButton}
@@ -318,6 +363,7 @@ export default function StationDetailsScreen() {
           </Pressable>
         </View>
 
+        {/* Rest of section content remains the same */}
         {isPriceLoading ? (
           <ActivityIndicator size='small' color='#2a9d8f' />
         ) : stationPrices.length > 0 ? (
@@ -627,5 +673,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     marginLeft: 4,
+  },
+  sectionTitleContainer: {
+    marginBottom: 4,
+  },
+  sectionHeaderControls: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
   },
 });

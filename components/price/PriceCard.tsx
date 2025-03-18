@@ -32,9 +32,21 @@ const PriceCard: React.FC<PriceCardProps> = ({
   onDispute,
   onUpdate,
 }) => {
+  // Format fuel type to handle different diesel types
+  const formatFuelType = (fuelType: string) => {
+    // For diesel types, preserve the specific type
+    if (fuelType.toLowerCase().includes('diesel')) {
+      if (fuelType.toLowerCase().includes('plus')) {
+        return 'Diesel Plus';
+      }
+      return 'Diesel';
+    }
+    return fuelType;
+  };
+
   return (
     <View style={styles.card}>
-      <Text style={styles.fuelType}>{fuelType}</Text>
+      <Text style={styles.fuelType}>{formatFuelType(fuelType)}</Text>
 
       {/* Community Price Section */}
       <View style={styles.communityPriceContainer}>
@@ -85,7 +97,7 @@ const PriceCard: React.FC<PriceCardProps> = ({
       {/* DOE Price Section */}
       {doeData && (
         <View style={styles.doePriceContainer}>
-          <Text style={styles.sectionTitle}>DOE OFFICIAL PRICES:</Text>
+          <Text style={styles.sectionTitle}>DOE REFERENCE DATA:</Text>
 
           <View style={styles.doePriceRow}>
             <View style={styles.doePriceItem}>
