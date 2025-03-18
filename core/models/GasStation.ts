@@ -4,6 +4,7 @@ export interface GasStation {
   brand: string;
   address: string;
   city: string;
+  province?: string;
   coordinates: {
     latitude: number;
     longitude: number;
@@ -12,8 +13,8 @@ export interface GasStation {
   operating_hours: {
     open: string;
     close: string;
-    is24_hours: boolean; // Changed from is24Hours
-    days_open: string[]; // Changed from daysOpen
+    is24_hours: boolean;
+    days_open: string[];
   };
   status: 'active' | 'inactive' | 'temporary_closed' | 'permanently_closed';
   distance?: number;

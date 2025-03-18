@@ -102,36 +102,6 @@ const BestPriceCard: React.FC<BestPriceCardProps> = ({
     }
   };
 
-  // Function to render confidence indicator
-  const renderConfidenceIndicator = () => {
-    if (price.source === 'community') {
-      const confidenceLevel =
-        price.confidence >= 0.8
-          ? 'High'
-          : price.confidence >= 0.5
-          ? 'Medium'
-          : 'Low';
-
-      const confidenceColor =
-        price.confidence >= 0.8
-          ? '#4caf50'
-          : price.confidence >= 0.5
-          ? '#ff9800'
-          : '#f44336';
-
-      return (
-        <View
-          style={[styles.confidenceIndicator, { borderColor: confidenceColor }]}
-        >
-          <Text style={[styles.confidenceText, { color: confidenceColor }]}>
-            {confidenceLevel}
-          </Text>
-        </View>
-      );
-    }
-    return null;
-  };
-
   return (
     <TouchableOpacity
       style={[styles.card, { backgroundColor: getBackgroundColor() }]}
@@ -161,10 +131,7 @@ const BestPriceCard: React.FC<BestPriceCardProps> = ({
             </View>
           </View>
 
-          <View style={styles.badgeContainer}>
-            {renderConfidenceIndicator()}
-            {renderSourceBadge()}
-          </View>
+          <View style={styles.badgeContainer}>{renderSourceBadge()}</View>
         </View>
 
         {/* Show fuel type if it's needed to distinguish between multiple types */}
@@ -313,17 +280,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#fff',
     marginLeft: 2,
-    fontWeight: '500',
-  },
-  confidenceIndicator: {
-    borderWidth: 1,
-    borderRadius: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    marginRight: 4,
-  },
-  confidenceText: {
-    fontSize: 10,
     fontWeight: '500',
   },
 });

@@ -7,6 +7,7 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useStationById } from '@/hooks/useStationService';
@@ -25,17 +26,39 @@ import PriceReportingModal from '@/components/price/PriceReportingModal';
 import { supabase } from '@/utils/supabase';
 import { FuelPrice } from '@/core/models/FuelPrice';
 import { usePriceCycle } from '@/hooks/usePriceCycle';
-import { Alert } from 'react-native';
+import { PriceStationConnector } from '@/utils/priceStationConnector';
+import { normalizeCityName } from '@/utils/areaMapping';
 
 // Extended FuelPrice type to include display type
 interface ExtendedFuelPrice extends FuelPrice {
   display_type?: string;
 }
 
+// Define NCR cities for reference
+const NCR_CITIES = [
+  'Quezon City',
+  'Manila City',
+  'Makati City',
+  'Pasig City',
+  'Taguig City',
+  'Pasay City',
+  'Caloocan City',
+  'Parañaque City',
+  'Mandaluyong City',
+  'Las Piñas City',
+  'Marikina City',
+  'Muntinlupa City',
+  'San Juan City',
+  'Valenzuela City',
+  'Navotas City',
+  'Malabon City',
+  'Pateros',
+];
+
 export default function StationDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data: station, loading, error } = useStationById(id);
-  const [doePrices, setDoePrices] = useState<FuelPrice[]>([]);
+  const [doePrices, setDoePrices] = useState<ExtendedFuelPrice[]>([]);
   const [loadingPrices, setLoadingPrices] = useState(false);
   const { currentCycle, daysRemaining } = usePriceCycle();
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -67,7 +90,7 @@ export default function StationDetailsScreen() {
     getStationPrices,
   } = usePriceReporting(currentUser);
 
-  // Load DOE prices when station data is available
+  // Load DOE prices with enhanced matching when station data is available
   useEffect(() => {
     const fetchDoePrices = async () => {
       if (!station) return;
@@ -88,17 +111,117 @@ export default function StationDetailsScreen() {
           return;
         }
 
-        // Get matching prices for this station's brand and city
-        const { data } = await supabase
+        // Get all prices from latest week
+        const { data: allPrices } = await supabase
           .from('fuel_prices')
           .select('*')
-          .eq('week_of', latestWeek.week_of)
-          .eq('area', station.city)
-          .ilike('brand', station.brand)
-          .order('fuel_type');
+          .eq('week_of', latestWeek.week_of);
 
-        if (data && data.length > 0) {
-          setDoePrices(data);
+        if (!allPrices || allPrices.length === 0) {
+          setLoadingPrices(false);
+          return;
+        }
+
+        // Use PriceStationConnector to get enhanced matches
+        const matchedPrices = await PriceStationConnector.getPricesForStation(
+          station
+        );
+
+        if (matchedPrices.length > 0) {
+          console.log(
+            `Found ${matchedPrices.length} matched prices using enhanced connector`
+          );
+
+          // Convert to ExtendedFuelPrice format without confidence
+          const enhancedPrices: ExtendedFuelPrice[] = matchedPrices.map(
+            (match) => ({
+              ...match.price,
+              display_type: getShortFuelTypeName(match.price.fuel_type),
+            })
+          );
+
+          // Sort by fuel type for consistent display
+          enhancedPrices.sort((a, b) => a.fuel_type.localeCompare(b.fuel_type));
+
+          setDoePrices(enhancedPrices);
+        } else {
+          console.log(
+            'No matched prices found using enhanced connector, trying fallback'
+          );
+
+          // Fallback to simpler brand+city matching
+          const { data } = await supabase
+            .from('fuel_prices')
+            .select('*')
+            .eq('week_of', latestWeek.week_of)
+            .eq('area', station.city)
+            .ilike('brand', station.brand)
+            .order('fuel_type');
+
+          // If we find matches with simple matching, use those
+          if (data && data.length > 0) {
+            console.log(`Found ${data.length} prices using simple matching`);
+
+            // Process diesel types like before
+            const processFuelTypes = (prices: FuelPrice[]) => {
+              const dieselOccurrences = prices.filter((p) =>
+                p.fuel_type.toLowerCase().includes('diesel')
+              ).length;
+
+              let dieselCount = 0;
+
+              return prices.map((price) => {
+                const processedPrice = { ...price } as ExtendedFuelPrice;
+
+                if (
+                  price.fuel_type.toLowerCase().includes('diesel') &&
+                  dieselOccurrences > 1
+                ) {
+                  dieselCount++;
+
+                  if (dieselCount === 1) {
+                    processedPrice.display_type = 'Diesel';
+                  } else {
+                    processedPrice.display_type = 'Diesel Plus';
+                  }
+                } else {
+                  processedPrice.display_type = getShortFuelTypeName(
+                    price.fuel_type
+                  );
+                }
+
+                return processedPrice;
+              });
+            };
+
+            setDoePrices(processFuelTypes(data));
+          } else {
+            // If no match at all, try an even more relaxed approach with NCR area
+            const { data: ncrData } = await supabase
+              .from('fuel_prices')
+              .select('*')
+              .eq('week_of', latestWeek.week_of)
+              .eq('area', 'NCR')
+              .ilike('brand', station.brand)
+              .order('fuel_type');
+
+            if (ncrData && ncrData.length > 0) {
+              console.log(
+                `Found ${ncrData.length} prices using NCR area matching`
+              );
+
+              // Process with simpler display
+              const processedPrices = ncrData.map((price) => {
+                const processedPrice = { ...price } as ExtendedFuelPrice;
+                processedPrice.display_type = getShortFuelTypeName(
+                  price.fuel_type
+                );
+                return processedPrice;
+              });
+
+              setDoePrices(processedPrices);
+            }
+          }
         }
       } catch (error) {
         console.error('Error fetching DOE prices:', error);
@@ -206,7 +329,7 @@ export default function StationDetailsScreen() {
     return fuelType;
   };
 
-  // Render the official prices section with the column format
+  // Render the official prices section with the column format - simplified without confidence
   const renderOfficialPrices = () => {
     if (loadingPrices) {
       return (
@@ -225,47 +348,9 @@ export default function StationDetailsScreen() {
       );
     }
 
-    // Process diesel types to distinguish between regular and plus
-    const processFuelTypes = (prices: FuelPrice[]) => {
-      // Create a map to track diesel occurrences
-      const dieselOccurrences = prices.filter((p) =>
-        p.fuel_type.toLowerCase().includes('diesel')
-      ).length;
-
-      let dieselCount = 0;
-
-      return prices.map((price) => {
-        // Make a copy to avoid modifying the original
-        const processedPrice = { ...price } as ExtendedFuelPrice;
-
-        // If this is a diesel type and we have multiple diesel entries
-        if (
-          price.fuel_type.toLowerCase().includes('diesel') &&
-          dieselOccurrences > 1
-        ) {
-          dieselCount++;
-
-          // Determine if this is regular diesel or diesel plus based on price
-          // Usually, Diesel Plus is more expensive than regular Diesel
-          if (dieselCount === 1) {
-            processedPrice.display_type = 'Diesel';
-          } else {
-            processedPrice.display_type = 'Diesel Plus';
-          }
-        } else {
-          processedPrice.display_type = getShortFuelTypeName(price.fuel_type);
-        }
-
-        return processedPrice;
-      });
-    };
-
-    // Process the prices to handle multiple diesel types
-    const processedPrices = processFuelTypes(doePrices);
-
     return (
       <View style={styles.officialPricesContainer}>
-        {/* Header row for the columns */}
+        {/* Header row for the columns - simplified without confidence */}
         <View style={styles.priceHeaderRow}>
           <Text style={styles.fuelTypeHeader}></Text>
           <Text style={styles.priceHeader}>Min</Text>
@@ -273,8 +358,8 @@ export default function StationDetailsScreen() {
           <Text style={styles.priceHeader}>Max</Text>
         </View>
 
-        {/* One row per fuel type */}
-        {processedPrices.map((price) => (
+        {/* One row per fuel type - simplified without confidence */}
+        {doePrices.map((price) => (
           <View key={price.id} style={styles.priceRow}>
             <Text style={styles.fuelType}>{price.display_type}:</Text>
             <Text style={styles.price}>
@@ -372,7 +457,15 @@ export default function StationDetailsScreen() {
               key={priceData.fuelType}
               fuelType={priceData.fuelType}
               communityPrice={priceData.communityPrice}
-              doeData={priceData.doeData}
+              doeData={
+                priceData.doeData
+                  ? {
+                      minPrice: priceData.doeData.minPrice,
+                      maxPrice: priceData.doeData.maxPrice,
+                      commonPrice: priceData.doeData.commonPrice,
+                    }
+                  : null
+              }
               verificationData={priceData.verificationData}
               onConfirm={() => {
                 if (checkIfUserLoggedIn()) {
@@ -594,7 +687,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginLeft: 8,
   },
-  // Column price format styles
+  // Column price format styles - simplified without confidence
   officialPricesContainer: {
     backgroundColor: '#f8f9fa',
     padding: 12,

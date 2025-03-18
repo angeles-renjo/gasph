@@ -4,6 +4,7 @@ import { supabase } from '@/utils/supabase';
 import { useServiceContext } from '@/context/ServiceContext';
 import { GasStation } from '@/core/models/GasStation';
 import { Coordinates } from '@/core/interfaces/ILocationService';
+import { PriceStationConnector } from '@/utils/priceStationConnector';
 
 // Default Manila coordinates
 const DEFAULT_COORDINATES = {
@@ -20,8 +21,8 @@ export interface BestPriceItem {
   stationId: string;
   area: string;
   distance?: number;
-  source: 'doe' | 'community'; // New field
-  confidence: number; // New field
+  source: 'doe' | 'community'; // Retain source information
+  confidence?: number; // Keep internally but don't display
 }
 
 export function useBestPrices() {
@@ -107,7 +108,7 @@ export function useBestPrices() {
     };
   }, [userLocation, stationService]);
 
-  // Fetch and process combined prices
+  // Fetch and process combined prices using enhanced PriceStationConnector
   const fetchBestPrices = useCallback(async () => {
     if (nearbyStations.length === 0) {
       console.log('No nearby stations available, skipping price fetch');
@@ -118,102 +119,141 @@ export function useBestPrices() {
       setLoading(true);
       setError(null);
 
-      console.log('Fetching combined prices...');
+      console.log(
+        'Fetching and matching prices with enhanced confidence scoring...'
+      );
 
-      // Query the combined_prices view
-      const { data: combinedPrices, error } = await supabase
-        .from('combined_prices')
-        .select('*')
-        .order('price');
-
-      if (error) throw error;
-
-      console.log(`Fetched ${combinedPrices.length} combined prices`);
-
-      // Get all unique fuel types
-      const fuelTypes = [
-        ...new Set(combinedPrices.map((price: any) => price.fuel_type)),
-      ];
-      console.log(`Available fuel types: ${fuelTypes.join(', ')}`);
-
-      // Create a map of brand+city to station for better lookups
-      const stationMap: Record<string, GasStation> = {};
-      nearbyStations.forEach((station) => {
-        // Use lowercase for case-insensitive matching
-        const key = `${station.brand.toLowerCase()}_${station.city.toLowerCase()}`;
-        stationMap[key] = station;
-      });
-
-      // Process each fuel type
-      const bestPricesByFuelType: Record<string, BestPriceItem[]> = {};
-
-      for (const fuelType of fuelTypes) {
-        // Get prices for this fuel type
-        const pricesForType = combinedPrices.filter(
-          (p: any) => p.fuel_type === fuelType
+      // Use the enhanced PriceStationConnector to get best prices
+      const matchedPrices =
+        await PriceStationConnector.getBestPricesForLocation(
+          userLocation.latitude,
+          userLocation.longitude,
+          nearbyStations
         );
 
-        // Apply weighting: if confidence values are close, sort by price
-        // Otherwise, prioritize higher confidence prices
-        const weightedPrices = [...pricesForType].sort((a: any, b: any) => {
-          // If confidence difference is significant
-          if (Math.abs(a.confidence - b.confidence) > 0.3) {
-            return b.confidence - a.confidence;
-          }
-          // Otherwise sort by price
-          return a.price - b.price;
-        });
+      // Prepare result object
+      const bestPricesByFuelType: Record<string, BestPriceItem[]> = {};
 
-        // Take the top 5 or fewer
-        const topPrices = weightedPrices.slice(0, 5);
-
-        // Map to best items with improved station matching
-        const bestItems: BestPriceItem[] = topPrices.map((price: any) => {
-          // For community prices that have a station_id, use that directly
-          let matchingStation = null;
-
-          if (price.source === 'community' && price.station_id) {
-            // Find station by ID
-            matchingStation = nearbyStations.find(
-              (s) => s.id === price.station_id
-            );
-          } else {
-            // Try to match by brand + area
-            const key = `${price.brand.toLowerCase()}_${price.area.toLowerCase()}`;
-            matchingStation = stationMap[key];
-          }
-
-          // If we found a matching station, use its name and ID
-          // Otherwise create a descriptive name using brand and area
-          const stationName = matchingStation
-            ? matchingStation.name
-            : `${price.brand} - ${price.area}`;
+      // Process each fuel type's matched prices
+      Object.entries(matchedPrices).forEach(([fuelType, priceMatches]) => {
+        const bestItems: BestPriceItem[] = priceMatches.map((match) => {
+          // Find the matching station if available
+          const matchingStation = match.stationId
+            ? nearbyStations.find((s) => s.id === match.stationId)
+            : undefined;
 
           return {
-            id: price.id,
-            fuelType: price.fuel_type,
-            price: price.price,
-            brand: price.brand,
-            stationName: stationName,
-            stationId: matchingStation?.id || '',
-            area: price.area,
+            id: match.price.id,
+            fuelType: match.price.fuel_type,
+            price: match.price.common_price,
+            brand: match.price.brand,
+            stationName: match.stationName || match.price.brand,
+            stationId: match.stationId || '',
+            area: match.price.area,
             distance: matchingStation?.distance,
-            source: price.source,
-            confidence: price.confidence,
+            source: 'doe',
+            confidence: match.matchConfidence, // Keep confidence but don't display it
           };
         });
 
-        bestPricesByFuelType[fuelType] = bestItems;
-      }
+        // Sort bestItems primarily by price, then by distance if prices are similar
+        bestItems.sort((a, b) => {
+          // Primary sort by price (always show cheaper first)
+          const priceDiff = a.price - b.price;
+          if (Math.abs(priceDiff) > 0.01) return priceDiff;
 
+          // Secondary sort by distance (closer first)
+          const distA = a.distance ?? Number.MAX_VALUE;
+          const distB = b.distance ?? Number.MAX_VALUE;
+          return distA - distB;
+        });
+
+        bestPricesByFuelType[fuelType] = bestItems;
+      });
+
+      console.log(
+        'Processed best prices for fuel types:',
+        Object.keys(bestPricesByFuelType).join(', ')
+      );
       setBestPrices(bestPricesByFuelType);
+
+      // Also fetch community prices and merge them
+      try {
+        const { data: communityPrices } = await supabase
+          .from('combined_prices')
+          .select('*')
+          .eq('source', 'community')
+          .order('price');
+
+        if (communityPrices && communityPrices.length > 0) {
+          console.log(
+            `Found ${communityPrices.length} community prices to integrate`
+          );
+
+          // Process each community price
+          communityPrices.forEach((communityPrice: any) => {
+            const fuelType = communityPrice.fuel_type;
+
+            if (!bestPricesByFuelType[fuelType]) {
+              bestPricesByFuelType[fuelType] = [];
+            }
+
+            // Find matching station for this community price
+            const matchingStation = communityPrice.station_id
+              ? nearbyStations.find((s) => s.id === communityPrice.station_id)
+              : undefined;
+
+            // Only include community prices for stations that are nearby
+            if (matchingStation) {
+              const communityItem: BestPriceItem = {
+                id: communityPrice.id,
+                fuelType: communityPrice.fuel_type,
+                price: communityPrice.price,
+                brand: communityPrice.brand,
+                stationName: matchingStation.name,
+                stationId: matchingStation.id,
+                area: communityPrice.area,
+                distance: matchingStation.distance,
+                source: 'community',
+                confidence: communityPrice.confidence,
+              };
+
+              bestPricesByFuelType[fuelType].push(communityItem);
+
+              // Re-sort by price first, then by distance
+              bestPricesByFuelType[fuelType].sort((a, b) => {
+                // Primary sort by price
+                const priceDiff = a.price - b.price;
+                if (Math.abs(priceDiff) > 0.01) return priceDiff;
+
+                // Secondary sort by distance
+                const distA = a.distance ?? Number.MAX_VALUE;
+                const distB = b.distance ?? Number.MAX_VALUE;
+                return distA - distB;
+              });
+
+              // Keep top 5 after including community prices
+              if (bestPricesByFuelType[fuelType].length > 5) {
+                bestPricesByFuelType[fuelType] = bestPricesByFuelType[
+                  fuelType
+                ].slice(0, 5);
+              }
+            }
+          });
+
+          setBestPrices(bestPricesByFuelType);
+        }
+      } catch (communityError) {
+        console.error('Error fetching community prices:', communityError);
+        // Don't fail the whole operation if community prices fail
+      }
     } catch (err) {
       console.error('Error fetching best prices:', err);
       setError(err instanceof Error ? err.message : 'Unknown error occurred');
     } finally {
       setLoading(false);
     }
-  }, [nearbyStations]);
+  }, [nearbyStations, userLocation]);
 
   // Fetch prices when nearby stations are available
   useEffect(() => {
