@@ -1,4 +1,4 @@
-// app/station/[id].tsx - With column-format prices
+// app/station/[id].tsx
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -24,15 +24,8 @@ import PriceCard from '@/components/price/PriceCard';
 import PriceReportingModal from '@/components/price/PriceReportingModal';
 import { supabase } from '@/utils/supabase';
 import { FuelPrice } from '@/core/models/FuelPrice';
-// At the top of the file, add:
 import { usePriceCycle } from '@/hooks/usePriceCycle';
-
-// Mock user for demonstration
-const DEMO_USER = {
-  id: '12345',
-  email: 'demo@example.com',
-  display_name: 'Demo User',
-};
+import { Alert } from 'react-native';
 
 export default function StationDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -40,8 +33,21 @@ export default function StationDetailsScreen() {
   const [doePrices, setDoePrices] = useState<FuelPrice[]>([]);
   const [loadingPrices, setLoadingPrices] = useState(false);
   const { currentCycle, daysRemaining } = usePriceCycle();
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
-  // Use the price reporting hook
+  // Get the authenticated user
+  useEffect(() => {
+    const getUser = async () => {
+      const { data } = await supabase.auth.getUser();
+      if (data?.user) {
+        setCurrentUser(data.user);
+      }
+    };
+
+    getUser();
+  }, []);
+
+  // Use the price reporting hook with the real user
   const {
     isLoading: isPriceLoading,
     isReportModalVisible,
@@ -54,7 +60,7 @@ export default function StationDetailsScreen() {
     submitPriceReport,
     voteOnPrice,
     getStationPrices,
-  } = usePriceReporting(DEMO_USER);
+  } = usePriceReporting(currentUser);
 
   // Load DOE prices when station data is available
   useEffect(() => {
@@ -152,8 +158,12 @@ export default function StationDetailsScreen() {
     }
   };
 
+  // app/station/[id].tsx - update renderCycleInfo function
   const renderCycleInfo = () => {
-    if (!currentCycle) return null;
+    if (!currentCycle) {
+      // Return null or a default message when no cycle exists
+      return null;
+    }
 
     return (
       <View style={styles.cycleInfoContainer}>
@@ -245,6 +255,25 @@ export default function StationDetailsScreen() {
     );
   };
 
+  const checkIfUserLoggedIn = () => {
+    // For testing without authentication, always return true
+    return true;
+
+    // When you implement auth, replace with this:
+    /*
+    if (!currentUser) {
+      Alert.alert(
+        'Login Required',
+        'You need to be logged in to report prices.',
+        [
+          { text: 'OK', onPress: () => {} }
+        ]
+      );
+      return false;
+    }
+    return true;
+    */
+  };
   return (
     <ScrollView style={styles.container}>
       <Pressable style={styles.backButton} onPress={() => router.back()}>
@@ -278,7 +307,11 @@ export default function StationDetailsScreen() {
           {renderCycleInfo()}
           <Pressable
             style={styles.addPriceButton}
-            onPress={() => openReportModal(station)}
+            onPress={() => {
+              if (checkIfUserLoggedIn()) {
+                openReportModal(station);
+              }
+            }}
           >
             <MaterialIcons name='add' size={16} color='#fff' />
             <Text style={styles.addPriceText}>Add Price</Text>
@@ -295,11 +328,24 @@ export default function StationDetailsScreen() {
               communityPrice={priceData.communityPrice}
               doeData={priceData.doeData}
               verificationData={priceData.verificationData}
-              onConfirm={() => handleConfirmPrice(priceData.reportId)}
-              onDispute={() => handleDisputePrice(priceData.reportId)}
-              onUpdate={() =>
-                handleUpdatePrice(priceData.fuelType, priceData.communityPrice)
-              }
+              onConfirm={() => {
+                if (checkIfUserLoggedIn()) {
+                  handleConfirmPrice(priceData.reportId);
+                }
+              }}
+              onDispute={() => {
+                if (checkIfUserLoggedIn()) {
+                  handleDisputePrice(priceData.reportId);
+                }
+              }}
+              onUpdate={() => {
+                if (checkIfUserLoggedIn()) {
+                  handleUpdatePrice(
+                    priceData.fuelType,
+                    priceData.communityPrice
+                  );
+                }
+              }}
             />
           ))
         ) : (
@@ -309,7 +355,11 @@ export default function StationDetailsScreen() {
             </Text>
             <Pressable
               style={styles.reportFirstButton}
-              onPress={() => openReportModal(station)}
+              onPress={() => {
+                if (checkIfUserLoggedIn()) {
+                  openReportModal(station);
+                }
+              }}
             >
               <Text style={styles.reportFirstText}>Report First Price</Text>
             </Pressable>

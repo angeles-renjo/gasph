@@ -17,14 +17,15 @@ export function usePriceCycle() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // hooks/usePriceCycle.ts - update the fetchCurrentCycle function
     const fetchCurrentCycle = async () => {
       try {
         setLoading(true);
+        // Don't use .single() which causes an error when no rows exist
         const { data, error } = await supabase
           .from('price_reporting_cycles')
           .select('*')
-          .eq('is_active', true)
-          .single();
+          .eq('is_active', true);
 
         if (error) {
           console.error('Error fetching current price cycle:', error);
@@ -32,7 +33,15 @@ export function usePriceCycle() {
           return;
         }
 
-        setCurrentCycle(data);
+        // Check if any data was returned
+        if (data && data.length > 0) {
+          setCurrentCycle(data[0]);
+        } else {
+          // No active cycle found, just set to null
+          setCurrentCycle(null);
+          console.log('No active price cycle found');
+        }
+
         setError(null);
       } catch (err) {
         console.error('Error in usePriceCycle:', err);

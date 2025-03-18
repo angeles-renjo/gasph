@@ -1,17 +1,15 @@
 // hooks/usePriceService.ts
-// Let's update the usePriceReporting hook to support our new functionality
-
 import { useState, useEffect, useCallback } from 'react';
 import { Alert } from 'react-native';
 import { supabase } from '@/utils/supabase';
 import { GasStation } from '@/core/models/GasStation';
 import { PriceReportData } from '@/components/price/PriceReportingModal';
 
-// For demonstration - in a real app, you'd use an auth hook
+// Interface for user profile
 interface User {
   id: string;
   email: string;
-  display_name: string;
+  display_name?: string;
 }
 
 export interface StationPrice {
@@ -33,8 +31,9 @@ export interface StationPrice {
 
 /**
  * Custom hook for managing price reporting functionality
+ * For testing without authentication, we'll use a hardcoded mock user
  */
-export function usePriceReporting(currentUser?: User | null) {
+export function usePriceReporting(currentUser?: any) {
   const [isLoading, setIsLoading] = useState(false);
   const [isReportModalVisible, setIsReportModalVisible] = useState(false);
   const [currentStation, setCurrentStation] = useState<GasStation | null>(null);
@@ -42,15 +41,32 @@ export function usePriceReporting(currentUser?: User | null) {
   const [initialPrice, setInitialPrice] = useState('');
   const [stationPrices, setStationPrices] = useState<StationPrice[]>([]);
 
-  // Mock user for demonstration
+  // Mock user for testing - hardcoded to match your test user ID
   const mockUser = {
-    id: '12345',
-    email: 'demo@example.com',
-    display_name: 'Demo User',
+    id: '9ccbda11-9ae7-4da5-9ca0-3608447c3efc', // ID from your screenshot
+    email: 'test@example.com',
   };
 
-  // Use mock user if no user provided
-  const user = currentUser || mockUser;
+  // Always use the mock user for testing without authentication
+  const [user, setUser] = useState<any>(mockUser);
+
+  // We'll keep this commented out until you implement authentication
+  /*
+  useEffect(() => {
+    if (!currentUser) {
+      const getUser = async () => {
+        const { data } = await supabase.auth.getUser();
+        if (data?.user) {
+          setUser(data.user);
+        }
+      };
+      
+      getUser();
+    } else {
+      setUser(currentUser);
+    }
+  }, [currentUser]);
+  */
 
   // Reset modal state when closed
   useEffect(() => {
@@ -94,9 +110,14 @@ export function usePriceReporting(currentUser?: User | null) {
         return;
       }
 
+      // Always use mock user ID for testing
+      const userId = user?.id || mockUser.id;
+
       setIsLoading(true);
 
       try {
+        console.log('Submitting price report for user:', userId);
+
         // Calculate expiration time (24 hours from now)
         const expiresAt = new Date();
         expiresAt.setHours(expiresAt.getHours() + 24);
@@ -108,7 +129,7 @@ export function usePriceReporting(currentUser?: User | null) {
             station_id: reportData.stationId,
             fuel_type: reportData.fuelType,
             price: reportData.price,
-            user_id: user.id,
+            user_id: userId,
             reported_at: new Date().toISOString(),
             expires_at: expiresAt.toISOString(),
             upvotes: 1, // Start with 1 (the reporter's implicit upvote)
@@ -116,7 +137,12 @@ export function usePriceReporting(currentUser?: User | null) {
           })
           .select();
 
-        if (error) throw error;
+        if (error) {
+          console.error('Error inserting price report:', error);
+          throw error;
+        }
+
+        console.log('Price report submitted successfully:', data);
 
         Alert.alert(
           'Thank You!',
@@ -147,23 +173,45 @@ export function usePriceReporting(currentUser?: User | null) {
    */
   const voteOnPrice = useCallback(
     async (reportId: string, isUpvote: boolean) => {
+      // Always use mock user ID for testing
+      const userId = user?.id || mockUser.id;
+
       setIsLoading(true);
 
       try {
+        console.log(
+          'Voting on price:',
+          reportId,
+          'upvote:',
+          isUpvote,
+          'user:',
+          userId
+        );
+
         // Check if user has already voted
-        const { data: existingVote } = await supabase
+        const { data: existingVote, error: voteError } = await supabase
           .from('user_price_votes')
           .select('*')
           .eq('report_id', reportId)
-          .eq('user_id', user.id)
+          .eq('user_id', userId)
           .single();
 
+        if (voteError && voteError.code !== 'PGRST116') {
+          // PGRST116 is "not found" which is expected if no vote exists
+          console.error('Error checking existing votes:', voteError);
+        }
+
         // Get current report state
-        const { data: report } = await supabase
+        const { data: report, error: reportError } = await supabase
           .from('user_price_reports')
           .select('*')
           .eq('id', reportId)
           .single();
+
+        if (reportError) {
+          console.error('Error fetching report:', reportError);
+          throw reportError;
+        }
 
         if (!report) {
           throw new Error('Report not found');
@@ -174,38 +222,64 @@ export function usePriceReporting(currentUser?: User | null) {
         let downvoteDelta = 0;
 
         if (existingVote) {
+          console.log('User already voted:', existingVote);
+
           // Changing vote?
           if (existingVote.is_upvote !== isUpvote) {
             upvoteDelta = isUpvote ? 1 : -1;
             downvoteDelta = isUpvote ? -1 : 1;
 
             // Update vote record
-            await supabase
+            const { error: updateError } = await supabase
               .from('user_price_votes')
               .update({ is_upvote: isUpvote })
               .eq('id', existingVote.id);
+
+            if (updateError) {
+              console.error('Error updating vote:', updateError);
+              throw updateError;
+            }
           }
         } else {
+          console.log('Creating new vote');
+
           // New vote
           upvoteDelta = isUpvote ? 1 : 0;
           downvoteDelta = isUpvote ? 0 : 1;
 
           // Create vote record
-          await supabase.from('user_price_votes').insert({
-            report_id: reportId,
-            user_id: user.id,
-            is_upvote: isUpvote,
-          });
+          const { error: insertError } = await supabase
+            .from('user_price_votes')
+            .insert({
+              report_id: reportId,
+              user_id: userId,
+              is_upvote: isUpvote,
+            });
+
+          if (insertError) {
+            console.error('Error inserting vote:', insertError);
+            throw insertError;
+          }
         }
 
+        console.log('Updating report with deltas:', {
+          upvoteDelta,
+          downvoteDelta,
+        });
+
         // Update report vote counts
-        await supabase
+        const { error: updateReportError } = await supabase
           .from('user_price_reports')
           .update({
             upvotes: report.upvotes + upvoteDelta,
             downvotes: report.downvotes + downvoteDelta,
           })
           .eq('id', reportId);
+
+        if (updateReportError) {
+          console.error('Error updating report counts:', updateReportError);
+          throw updateReportError;
+        }
 
         // Refresh prices after voting
         if (currentStation) {
@@ -232,32 +306,47 @@ export function usePriceReporting(currentUser?: User | null) {
       setIsLoading(true);
 
       try {
+        console.log('Getting prices for station:', stationId);
+
         // Get latest week_of date for DOE prices
-        const { data: latestWeek } = await supabase
+        const { data: latestWeek, error: weekError } = await supabase
           .from('fuel_prices')
           .select('week_of')
           .order('week_of', { ascending: false })
           .limit(1)
           .single();
 
+        if (weekError) {
+          console.error('Error getting latest week:', weekError);
+        }
+
         // Get station info for brand and city
-        const { data: station } = await supabase
+        const { data: station, error: stationError } = await supabase
           .from('gas_stations')
           .select('*')
           .eq('id', stationId)
           .single();
+
+        if (stationError) {
+          console.error('Error getting station:', stationError);
+          throw stationError;
+        }
 
         if (!station) {
           throw new Error('Station not found');
         }
 
         // Get DOE prices for this station's brand and city
-        const { data: doePrices } = await supabase
+        const { data: doePrices, error: priceError } = await supabase
           .from('fuel_prices')
           .select('*')
           .eq('week_of', latestWeek?.week_of || '')
           .eq('area', station.city)
           .ilike('brand', station.brand);
+
+        if (priceError) {
+          console.error('Error getting DOE prices:', priceError);
+        }
 
         // Create DOE prices lookup
         const doeByFuelType: Record<string, any> = {};
@@ -270,12 +359,18 @@ export function usePriceReporting(currentUser?: User | null) {
         });
 
         // Get all community-reported prices for this station
-        const { data: communityPrices } = await supabase
+        const { data: communityPrices, error: communityError } = await supabase
           .from('user_price_reports')
           .select('*')
           .eq('station_id', stationId)
           .gte('expires_at', new Date().toISOString())
           .order('reported_at', { ascending: false }); // Order by most recent first
+
+        if (communityError) {
+          console.error('Error getting community prices:', communityError);
+        }
+
+        console.log('Found community prices:', communityPrices?.length || 0);
 
         // Process all fuel types (from both DOE and community)
         const fuelTypes = new Set<string>();
@@ -296,7 +391,6 @@ export function usePriceReporting(currentUser?: User | null) {
 
           if (pricesForType.length > 0) {
             // Sort by reported_at (most recent first)
-            // This is a change from the previous version which sorted by upvotes
             pricesForType.sort(
               (a, b) =>
                 new Date(b.reported_at).getTime() -
@@ -305,6 +399,12 @@ export function usePriceReporting(currentUser?: User | null) {
 
             // Get most recent community price
             const latestPrice = pricesForType[0];
+
+            console.log('Processing price report:', latestPrice);
+
+            // Use the reporter's email for testing
+            // In production, you would fetch this from profiles
+            const reporterName = 'test@example.com';
 
             // Format "time ago" for the report
             const reportTime = new Date(latestPrice.reported_at);
@@ -334,7 +434,7 @@ export function usePriceReporting(currentUser?: User | null) {
                 confirmedCount: latestPrice.upvotes,
                 disputedCount: latestPrice.downvotes,
                 lastUpdated: lastUpdatedText,
-                reporterName: 'Community User', // Placeholder - we would get real username
+                reporterName: reporterName,
               },
             });
           } else {
@@ -349,6 +449,7 @@ export function usePriceReporting(currentUser?: User | null) {
           }
         }
 
+        console.log('Station prices processed:', results.length);
         setStationPrices(results);
         return results;
       } catch (error) {
@@ -360,6 +461,7 @@ export function usePriceReporting(currentUser?: User | null) {
     },
     []
   );
+
   return {
     isLoading,
     isReportModalVisible,

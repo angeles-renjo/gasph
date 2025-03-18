@@ -178,10 +178,13 @@ const styles = StyleSheet.create({
   },
   reportInfoContainer: {
     marginBottom: 8,
+    backgroundColor: '#f5f5f5',
+    padding: 6,
+    borderRadius: 4,
   },
   reportInfoText: {
     fontSize: 12,
-    color: '#666',
+    color: '#444',
     fontStyle: 'italic',
   },
   updateButton: {
