@@ -2,7 +2,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
-import { formatCurrency } from '@/utils/formatters';
+import { formatCurrency, isValidPrice } from '@/utils/formatters';
 
 interface PriceCardProps {
   fuelType: string;
@@ -44,6 +44,13 @@ const PriceCard: React.FC<PriceCardProps> = ({
     return fuelType;
   };
 
+  // Check if DOE data has any valid prices
+  const hasDoeData =
+    doeData &&
+    (isValidPrice(doeData.minPrice) ||
+      isValidPrice(doeData.commonPrice) ||
+      isValidPrice(doeData.maxPrice));
+
   return (
     <View style={styles.card}>
       <Text style={styles.fuelType}>{formatFuelType(fuelType)}</Text>
@@ -53,11 +60,16 @@ const PriceCard: React.FC<PriceCardProps> = ({
         <Text style={styles.sectionTitle}>COMMUNITY REPORTED PRICE:</Text>
 
         <View style={styles.mainPriceRow}>
-          <Text style={styles.communityPrice}>
-            {communityPrice !== null ? formatCurrency(communityPrice) : '--'}
+          <Text
+            style={[
+              styles.communityPrice,
+              !isValidPrice(communityPrice) && styles.noPrice,
+            ]}
+          >
+            {formatCurrency(communityPrice)}
           </Text>
 
-          {communityPrice !== null && verificationData && (
+          {isValidPrice(communityPrice) && verificationData && (
             <View style={styles.voteContainer}>
               <TouchableOpacity style={styles.voteButton} onPress={onConfirm}>
                 <Ionicons name='thumbs-up' size={16} color='#4CAF50' />
@@ -76,7 +88,7 @@ const PriceCard: React.FC<PriceCardProps> = ({
           )}
         </View>
 
-        {communityPrice !== null && verificationData && (
+        {isValidPrice(communityPrice) && verificationData && (
           <View style={styles.reportInfoContainer}>
             <Text style={styles.reportInfoText}>
               {verificationData.reporterName
@@ -89,44 +101,67 @@ const PriceCard: React.FC<PriceCardProps> = ({
         <TouchableOpacity style={styles.updateButton} onPress={onUpdate}>
           <MaterialIcons name='edit' size={14} color='#2196F3' />
           <Text style={styles.updateButtonText}>
-            {communityPrice !== null ? 'Update Price' : 'Report Price'}
+            {isValidPrice(communityPrice) ? 'Update Price' : 'Report Price'}
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* DOE Price Section - Simplified without confidence indicator */}
+      {/* DOE Price Section */}
       {doeData && (
-        <View style={styles.doePriceContainer}>
+        <View
+          style={[
+            styles.doePriceContainer,
+            !hasDoeData && styles.noDataContainer,
+          ]}
+        >
           <Text style={styles.sectionTitle}>DOE REFERENCE DATA:</Text>
 
-          <View style={styles.doePriceRow}>
-            <View style={styles.doePriceItem}>
-              <Text style={styles.doePriceLabel}>Min:</Text>
-              <Text style={styles.doePrice}>
-                {doeData.minPrice !== null
-                  ? formatCurrency(doeData.minPrice)
-                  : '--'}
-              </Text>
-            </View>
+          {hasDoeData ? (
+            <View style={styles.doePriceRow}>
+              <View style={styles.doePriceItem}>
+                <Text style={styles.doePriceLabel}>Min:</Text>
+                <Text
+                  style={[
+                    styles.doePrice,
+                    !isValidPrice(doeData.minPrice) && styles.noDoePrice,
+                  ]}
+                >
+                  {formatCurrency(doeData.minPrice)}
+                </Text>
+              </View>
 
-            <View style={styles.doePriceItem}>
-              <Text style={styles.doePriceLabel}>Common:</Text>
-              <Text style={styles.doePrice}>
-                {doeData.commonPrice !== null
-                  ? formatCurrency(doeData.commonPrice)
-                  : '--'}
-              </Text>
-            </View>
+              <View style={styles.doePriceItem}>
+                <Text style={styles.doePriceLabel}>Common:</Text>
+                <Text
+                  style={[
+                    styles.doePrice,
+                    !isValidPrice(doeData.commonPrice) && styles.noDoePrice,
+                  ]}
+                >
+                  {formatCurrency(doeData.commonPrice)}
+                </Text>
+              </View>
 
-            <View style={styles.doePriceItem}>
-              <Text style={styles.doePriceLabel}>Max:</Text>
-              <Text style={styles.doePrice}>
-                {doeData.maxPrice !== null
-                  ? formatCurrency(doeData.maxPrice)
-                  : '--'}
+              <View style={styles.doePriceItem}>
+                <Text style={styles.doePriceLabel}>Max:</Text>
+                <Text
+                  style={[
+                    styles.doePrice,
+                    !isValidPrice(doeData.maxPrice) && styles.noDoePrice,
+                  ]}
+                >
+                  {formatCurrency(doeData.maxPrice)}
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.noDataRow}>
+              <MaterialIcons name='info-outline' size={16} color='#999' />
+              <Text style={styles.noDataText}>
+                No official price data available for this station.
               </Text>
             </View>
-          </View>
+          )}
         </View>
       )}
     </View>
@@ -170,6 +205,10 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: 'bold',
     color: '#2a9d8f',
+  },
+  noPrice: {
+    color: '#999',
+    fontStyle: 'italic',
   },
   voteContainer: {
     flexDirection: 'row',
@@ -219,6 +258,14 @@ const styles = StyleSheet.create({
     borderTopColor: '#f0f0f0',
     paddingTop: 12,
   },
+  noDataContainer: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 6,
+    padding: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    paddingTop: 12,
+  },
   doePriceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -236,6 +283,22 @@ const styles = StyleSheet.create({
   doePrice: {
     fontSize: 16,
     fontWeight: '500',
+    color: '#2a9d8f',
+  },
+  noDoePrice: {
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  noDataRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+  },
+  noDataText: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+    marginLeft: 8,
   },
 });
 

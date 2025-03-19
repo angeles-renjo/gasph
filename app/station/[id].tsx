@@ -19,6 +19,7 @@ import {
   formatOperatingHours,
   formatCurrency,
   formatDate,
+  isValidPrice,
 } from '@/utils/formatters';
 import { FUEL_TYPES } from '@/utils/constants';
 import PriceCard from '@/components/price/PriceCard';
@@ -348,9 +349,40 @@ export default function StationDetailsScreen() {
       );
     }
 
+    // Count how many prices have valid data (non-zero)
+    const validPriceCount = doePrices.filter(
+      (price) =>
+        isValidPrice(price.min_price) ||
+        isValidPrice(price.common_price) ||
+        isValidPrice(price.max_price)
+    ).length;
+
+    // If none have valid prices, show a more helpful message
+    if (validPriceCount === 0) {
+      return (
+        <View style={styles.noDataContainer}>
+          <View style={styles.noDataRow}>
+            <MaterialIcons name='info-outline' size={18} color='#999' />
+            <Text style={styles.noDataText}>
+              Official price data is available for this station, but current
+              prices are not listed.
+            </Text>
+          </View>
+          <Text style={styles.noDataSubText}>
+            Visit this station for the latest prices, or report them if you have
+            recent information.
+          </Text>
+          <Text style={styles.officialNoteText}>
+            Data as of {formatDate(doePrices[0]?.week_of)}
+          </Text>
+        </View>
+      );
+    }
+
+    // Otherwise show the price table with "--" for zero prices
     return (
       <View style={styles.officialPricesContainer}>
-        {/* Header row for the columns - simplified without confidence */}
+        {/* Header row for the columns */}
         <View style={styles.priceHeaderRow}>
           <Text style={styles.fuelTypeHeader}></Text>
           <Text style={styles.priceHeader}>Min</Text>
@@ -358,18 +390,33 @@ export default function StationDetailsScreen() {
           <Text style={styles.priceHeader}>Max</Text>
         </View>
 
-        {/* One row per fuel type - simplified without confidence */}
+        {/* One row per fuel type */}
         {doePrices.map((price) => (
           <View key={price.id} style={styles.priceRow}>
             <Text style={styles.fuelType}>{price.display_type}:</Text>
-            <Text style={styles.price}>
-              {price.min_price ? formatCurrency(price.min_price) : '--'}
+            <Text
+              style={[
+                styles.price,
+                !isValidPrice(price.min_price) && styles.noPrice,
+              ]}
+            >
+              {formatCurrency(price.min_price)}
             </Text>
-            <Text style={styles.price}>
-              {price.common_price ? formatCurrency(price.common_price) : '--'}
+            <Text
+              style={[
+                styles.price,
+                !isValidPrice(price.common_price) && styles.noPrice,
+              ]}
+            >
+              {formatCurrency(price.common_price)}
             </Text>
-            <Text style={styles.price}>
-              {price.max_price ? formatCurrency(price.max_price) : '--'}
+            <Text
+              style={[
+                styles.price,
+                !isValidPrice(price.max_price) && styles.noPrice,
+              ]}
+            >
+              {formatCurrency(price.max_price)}
             </Text>
           </View>
         ))}
@@ -775,5 +822,32 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
+  },
+  noPrice: {
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  noDataContainer: {
+    borderLeftColor: '#9e9e9e',
+    backgroundColor: '#f9f9f9',
+  },
+  noDataRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+  },
+  noDataText: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+    marginLeft: 8,
+  },
+  noDataSubText: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    marginLeft: 26,
+    marginBottom: 12,
   },
 });

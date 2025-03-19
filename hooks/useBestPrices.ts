@@ -1,10 +1,11 @@
-// hooks/useBestPrices.ts
+// hooks/useBestPrices.ts - revised to keep zero-price stations
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/utils/supabase';
 import { useServiceContext } from '@/context/ServiceContext';
 import { GasStation } from '@/core/models/GasStation';
 import { Coordinates } from '@/core/interfaces/ILocationService';
 import { PriceStationConnector } from '@/utils/priceStationConnector';
+import { isValidPrice } from '@/utils/formatters';
 
 // Default Manila coordinates
 const DEFAULT_COORDINATES = {
@@ -15,7 +16,7 @@ const DEFAULT_COORDINATES = {
 export interface BestPriceItem {
   id: string;
   fuelType: string;
-  price: number;
+  price: number | null;
   brand: string;
   stationName: string;
   stationId: string;
@@ -136,6 +137,11 @@ export function useBestPrices() {
 
       // Process each fuel type's matched prices
       Object.entries(matchedPrices).forEach(([fuelType, priceMatches]) => {
+        // Count valid prices for later reference
+        const validPriceCount = priceMatches.filter((match) =>
+          isValidPrice(match.price.common_price)
+        ).length;
+
         const bestItems: BestPriceItem[] = priceMatches.map((match) => {
           // Find the matching station if available
           const matchingStation = match.stationId
@@ -145,30 +151,59 @@ export function useBestPrices() {
           return {
             id: match.price.id,
             fuelType: match.price.fuel_type,
-            price: match.price.common_price,
+            price: match.price.common_price, // Keep all prices, even zero values
             brand: match.price.brand,
             stationName: match.stationName || match.price.brand,
             stationId: match.stationId || '',
             area: match.price.area,
             distance: matchingStation?.distance,
             source: 'doe',
-            confidence: match.matchConfidence, // Keep confidence but don't display it
+            confidence: match.matchConfidence,
           };
         });
 
-        // Sort bestItems primarily by price, then by distance if prices are similar
+        // Sort bestItems primarily by price validity, then by price value, then by distance
         bestItems.sort((a, b) => {
-          // Primary sort by price (always show cheaper first)
-          const priceDiff = a.price - b.price;
-          if (Math.abs(priceDiff) > 0.01) return priceDiff;
+          // First, prioritize valid prices
+          const aValid = isValidPrice(a.price);
+          const bValid = isValidPrice(b.price);
+          if (aValid && !bValid) return -1;
+          if (!aValid && bValid) return 1;
 
-          // Secondary sort by distance (closer first)
+          // If both are valid, sort by price value
+          if (aValid && bValid) {
+            return (a.price as number) - (b.price as number);
+          }
+
+          // For invalid prices, sort by distance
           const distA = a.distance ?? Number.MAX_VALUE;
           const distB = b.distance ?? Number.MAX_VALUE;
           return distA - distB;
         });
 
-        bestPricesByFuelType[fuelType] = bestItems;
+        // Take at most 5 results, but ensure we include stations with valid prices first
+        if (bestItems.length > 5) {
+          // If we have enough valid prices, keep top 5
+          if (validPriceCount >= 3) {
+            bestPricesByFuelType[fuelType] = bestItems.slice(0, 5);
+          } else {
+            // Take all valid prices then add zero-price items to reach 5 total
+            const validItems = bestItems.filter((item) =>
+              isValidPrice(item.price)
+            );
+            const zeroItems = bestItems.filter(
+              (item) => !isValidPrice(item.price)
+            );
+
+            bestPricesByFuelType[fuelType] = [
+              ...validItems,
+              ...zeroItems.slice(0, 5 - validItems.length),
+            ];
+          }
+        } else {
+          // If we have 5 or fewer items, keep them all
+          bestPricesByFuelType[fuelType] = bestItems;
+        }
       });
 
       console.log(
@@ -190,57 +225,89 @@ export function useBestPrices() {
             `Found ${communityPrices.length} community prices to integrate`
           );
 
-          // Process each community price
-          communityPrices.forEach((communityPrice: any) => {
-            const fuelType = communityPrice.fuel_type;
+          // Filter for valid community prices
+          const validCommunityPrices = communityPrices.filter((price: any) =>
+            isValidPrice(price.price)
+          );
 
-            if (!bestPricesByFuelType[fuelType]) {
-              bestPricesByFuelType[fuelType] = [];
-            }
+          if (validCommunityPrices.length > 0) {
+            console.log(
+              `${validCommunityPrices.length} valid community prices after filtering`
+            );
 
-            // Find matching station for this community price
-            const matchingStation = communityPrice.station_id
-              ? nearbyStations.find((s) => s.id === communityPrice.station_id)
-              : undefined;
+            // Process each valid community price
+            validCommunityPrices.forEach((communityPrice: any) => {
+              const fuelType = communityPrice.fuel_type;
 
-            // Only include community prices for stations that are nearby
-            if (matchingStation) {
-              const communityItem: BestPriceItem = {
-                id: communityPrice.id,
-                fuelType: communityPrice.fuel_type,
-                price: communityPrice.price,
-                brand: communityPrice.brand,
-                stationName: matchingStation.name,
-                stationId: matchingStation.id,
-                area: communityPrice.area,
-                distance: matchingStation.distance,
-                source: 'community',
-                confidence: communityPrice.confidence,
-              };
-
-              bestPricesByFuelType[fuelType].push(communityItem);
-
-              // Re-sort by price first, then by distance
-              bestPricesByFuelType[fuelType].sort((a, b) => {
-                // Primary sort by price
-                const priceDiff = a.price - b.price;
-                if (Math.abs(priceDiff) > 0.01) return priceDiff;
-
-                // Secondary sort by distance
-                const distA = a.distance ?? Number.MAX_VALUE;
-                const distB = b.distance ?? Number.MAX_VALUE;
-                return distA - distB;
-              });
-
-              // Keep top 5 after including community prices
-              if (bestPricesByFuelType[fuelType].length > 5) {
-                bestPricesByFuelType[fuelType] = bestPricesByFuelType[
-                  fuelType
-                ].slice(0, 5);
+              if (!bestPricesByFuelType[fuelType]) {
+                bestPricesByFuelType[fuelType] = [];
               }
-            }
-          });
 
+              // Find matching station for this community price
+              const matchingStation = communityPrice.station_id
+                ? nearbyStations.find((s) => s.id === communityPrice.station_id)
+                : undefined;
+
+              // Only include community prices for stations that are nearby
+              if (matchingStation) {
+                const communityItem: BestPriceItem = {
+                  id: communityPrice.id,
+                  fuelType: communityPrice.fuel_type,
+                  price: communityPrice.price,
+                  brand: communityPrice.brand,
+                  stationName: matchingStation.name,
+                  stationId: matchingStation.id,
+                  area: communityPrice.area,
+                  distance: matchingStation.distance,
+                  source: 'community',
+                  confidence: communityPrice.confidence,
+                };
+
+                bestPricesByFuelType[fuelType].push(communityItem);
+
+                // Re-sort with the same criteria: valid prices first, then price, then distance
+                bestPricesByFuelType[fuelType].sort((a, b) => {
+                  // First, prioritize valid prices
+                  const aValid = isValidPrice(a.price);
+                  const bValid = isValidPrice(b.price);
+                  if (aValid && !bValid) return -1;
+                  if (!aValid && bValid) return 1;
+
+                  // If both are valid, sort by price
+                  if (aValid && bValid) {
+                    return (a.price as number) - (b.price as number);
+                  }
+
+                  // Secondary sort by distance
+                  const distA = a.distance ?? Number.MAX_VALUE;
+                  const distB = b.distance ?? Number.MAX_VALUE;
+                  return distA - distB;
+                });
+
+                // Keep top 5 after including community prices
+                if (bestPricesByFuelType[fuelType].length > 5) {
+                  // Preserve valid prices first
+                  const validItems = bestPricesByFuelType[fuelType].filter(
+                    (item) => isValidPrice(item.price)
+                  );
+
+                  const invalidItems = bestPricesByFuelType[fuelType].filter(
+                    (item) => !isValidPrice(item.price)
+                  );
+
+                  // Keep all valid prices (up to 5), then fill with invalid prices if needed
+                  if (validItems.length >= 5) {
+                    bestPricesByFuelType[fuelType] = validItems.slice(0, 5);
+                  } else {
+                    bestPricesByFuelType[fuelType] = [
+                      ...validItems,
+                      ...invalidItems.slice(0, 5 - validItems.length),
+                    ];
+                  }
+                }
+              }
+            });
+          }
           setBestPrices(bestPricesByFuelType);
         }
       } catch (communityError) {

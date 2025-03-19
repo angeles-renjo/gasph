@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { GasStation } from '@/core/models/GasStation';
 import { MaterialIcons } from '@expo/vector-icons';
-import { formatCurrency } from '@/utils/formatters';
+import { formatCurrency, isValidPrice } from '@/utils/formatters';
 import { supabase } from '@/utils/supabase';
 import { ActivityIndicator } from 'react-native';
 
@@ -50,13 +50,32 @@ export const StationCard: React.FC<StationCardProps> = ({
           .ilike('brand', station.brand) // Case-insensitive match for brand
           .order('fuel_type');
 
-        // Get only the main fuel types
-        const mainFuels = (data || []).filter(
-          (price) =>
-            price.fuel_type === 'Gasoline (RON 95)' ||
-            price.fuel_type === 'Gasoline (RON 91)' ||
-            price.fuel_type === 'Diesel'
+        // Check if any non-zero prices exist
+        const validPrices = (data || []).filter((price) =>
+          isValidPrice(price.common_price)
         );
+
+        // Get only the main fuel types - prioritize non-zero prices
+        const fuelTypesToShow = [
+          'Gasoline (RON 95)',
+          'Gasoline (RON 91)',
+          'Diesel',
+        ];
+
+        // If we have valid prices, prioritize them
+        let mainFuels: any[] = [];
+
+        if (validPrices.length > 0) {
+          // Only show valid prices - filter by main fuel types
+          mainFuels = validPrices.filter((price) =>
+            fuelTypesToShow.includes(price.fuel_type)
+          );
+        } else if (data && data.length > 0) {
+          // No valid prices, but show the available main fuel types anyway
+          mainFuels = data.filter((price) =>
+            fuelTypesToShow.includes(price.fuel_type)
+          );
+        }
 
         setPrices(mainFuels);
       } catch (error) {
@@ -128,6 +147,11 @@ export const StationCard: React.FC<StationCardProps> = ({
     return fuelType;
   };
 
+  // Check if we have any valid prices
+  const hasValidPrices = prices.some((price) =>
+    isValidPrice(price.common_price)
+  );
+
   // Render the prices in a columnar format
   const renderColumnPrices = () => {
     if (loading) {
@@ -144,34 +168,67 @@ export const StationCard: React.FC<StationCardProps> = ({
     }
 
     return (
-      <View style={styles.priceContainer}>
-        <Text style={styles.priceTitle}>Official Prices</Text>
+      <View
+        style={[
+          styles.priceContainer,
+          !hasValidPrices && styles.noDataContainer,
+        ]}
+      >
+        <Text style={styles.priceTitle}>
+          {hasValidPrices ? 'Official Prices' : 'No Price Data Available'}
+        </Text>
 
-        {/* Header row for the columns */}
-        <View style={styles.priceHeaderRow}>
-          <Text style={styles.fuelTypeHeader}></Text>
-          <Text style={styles.priceHeader}>Min</Text>
-          <Text style={styles.priceHeader}>Common</Text>
-          <Text style={styles.priceHeader}>Max</Text>
-        </View>
+        {hasValidPrices ? (
+          <>
+            {/* Header row for the columns */}
+            <View style={styles.priceHeaderRow}>
+              <Text style={styles.fuelTypeHeader}></Text>
+              <Text style={styles.priceHeader}>Min</Text>
+              <Text style={styles.priceHeader}>Common</Text>
+              <Text style={styles.priceHeader}>Max</Text>
+            </View>
 
-        {/* One row per fuel type */}
-        {prices.map((price) => (
-          <View key={price.id} style={styles.priceRow}>
-            <Text style={styles.fuelType}>
-              {getShortFuelTypeName(price.fuel_type)}:
-            </Text>
-            <Text style={styles.price}>
-              {price.min_price ? formatCurrency(price.min_price) : '--'}
-            </Text>
-            <Text style={styles.price}>
-              {price.common_price ? formatCurrency(price.common_price) : '--'}
-            </Text>
-            <Text style={styles.price}>
-              {price.max_price ? formatCurrency(price.max_price) : '--'}
+            {/* One row per fuel type */}
+            {prices.map((price) => (
+              <View key={price.id} style={styles.priceRow}>
+                <Text style={styles.fuelType}>
+                  {getShortFuelTypeName(price.fuel_type)}:
+                </Text>
+                <Text
+                  style={[
+                    styles.price,
+                    !isValidPrice(price.min_price) && styles.noPrice,
+                  ]}
+                >
+                  {formatCurrency(price.min_price)}
+                </Text>
+                <Text
+                  style={[
+                    styles.price,
+                    !isValidPrice(price.common_price) && styles.noPrice,
+                  ]}
+                >
+                  {formatCurrency(price.common_price)}
+                </Text>
+                <Text
+                  style={[
+                    styles.price,
+                    !isValidPrice(price.max_price) && styles.noPrice,
+                  ]}
+                >
+                  {formatCurrency(price.max_price)}
+                </Text>
+              </View>
+            ))}
+          </>
+        ) : (
+          <View style={styles.noPriceMessage}>
+            <MaterialIcons name='info-outline' size={16} color='#999' />
+            <Text style={styles.noPriceMessageText}>
+              Visit station for current prices
             </Text>
           </View>
-        ))}
+        )}
       </View>
     );
   };
@@ -292,6 +349,10 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3,
     borderLeftColor: '#2a9d8f',
   },
+  noDataContainer: {
+    borderLeftColor: '#9e9e9e',
+    backgroundColor: '#f5f5f5',
+  },
   priceTitle: {
     fontSize: 14,
     fontWeight: '500',
@@ -335,5 +396,21 @@ const styles = StyleSheet.create({
     color: '#2a9d8f',
     textAlign: 'center',
     fontWeight: '500',
+  },
+  noPrice: {
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  noPriceMessage: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 8,
+  },
+  noPriceMessageText: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+    marginLeft: 8,
   },
 });

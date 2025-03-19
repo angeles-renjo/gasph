@@ -1,7 +1,14 @@
+// utils/formatters.ts with improved TypeScript typings
 /**
  * Format a number as Philippine Peso
+ * Now handles zero values as a special case
  */
-export const formatCurrency = (value: number): string => {
+export const formatCurrency = (value: number | null | undefined): string => {
+  // Return "--" for null, undefined, zero, or negative values
+  if (value === null || value === undefined || value <= 0) {
+    return '--';
+  }
+
   return new Intl.NumberFormat('en-PH', {
     style: 'currency',
     currency: 'PHP',
@@ -11,21 +18,44 @@ export const formatCurrency = (value: number): string => {
 };
 
 /**
+ * Check if a price value is meaningful (not zero, null, or undefined)
+ */
+export const isValidPrice = (value: number | null | undefined): boolean => {
+  return value !== null && value !== undefined && value > 0;
+};
+
+/**
+ * Get a sort value for prices, with valid prices ranking higher than invalid ones
+ * @returns A number where higher values mean higher priority
+ */
+export const getPriceSortValue = (value: number | null | undefined): number => {
+  if (!isValidPrice(value)) return -1; // Invalid prices go last
+  return value as number; // Type assertion since we've verified it's a valid number
+};
+
+/**
  * Format date to a readable string
  */
-export const formatDate = (date: Date | string): string => {
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
-  return dateObj.toLocaleDateString('en-PH', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+export const formatDate = (date: Date | string | null | undefined): string => {
+  if (!date) return '';
+
+  try {
+    const dateObj = typeof date === 'string' ? new Date(date) : date;
+    return dateObj.toLocaleDateString('en-PH', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return '';
+  }
 };
 
 /**
  * Format a time string (e.g. "08:00" to "8:00 AM")
  */
-export const formatTime = (time: string): string => {
+export const formatTime = (time: string | null | undefined): string => {
   if (!time) return '';
 
   try {
@@ -44,19 +74,25 @@ export const formatTime = (time: string): string => {
     });
   } catch (error) {
     console.error('Error formatting time:', error);
-    return time; // Return the original if there's an error
+    return time || ''; // Return the original if there's an error
   }
 };
+
+interface OperatingHours {
+  open: string;
+  close: string;
+  is24_hours: boolean;
+  days_open: string[];
+}
 
 /**
  * Format operating hours to a readable string
  */
-export const formatOperatingHours = (operatingHours: {
-  open: string;
-  close: string;
-  is24_hours: boolean; // Changed from is24Hours
-  days_open: string[]; // Changed from daysOpen
-}): string => {
+export const formatOperatingHours = (
+  operatingHours: OperatingHours | null | undefined
+): string => {
+  if (!operatingHours) return 'Hours unknown';
+
   if (operatingHours.is24_hours) {
     return 'Open 24 hours';
   }
@@ -72,7 +108,7 @@ export const formatOperatingHours = (operatingHours: {
 /**
  * Format days array to a readable string
  */
-export const formatDays = (days: string[]): string => {
+export const formatDays = (days: string[] | null | undefined): string => {
   if (!days || days.length === 0) return '';
 
   // If all 7 days, return "Every day"

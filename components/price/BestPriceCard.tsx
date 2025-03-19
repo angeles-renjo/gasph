@@ -1,8 +1,8 @@
-// components/price/BestPriceCard.tsx
+// components/price/BestPriceCard.tsx - revised to better handle zero prices
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { formatCurrency } from '@/utils/formatters';
+import { formatCurrency, isValidPrice } from '@/utils/formatters';
 import { BestPriceItem } from '@/hooks/useBestPrices';
 
 interface BestPriceCardProps {
@@ -17,20 +17,31 @@ const BestPriceCard: React.FC<BestPriceCardProps> = ({
   onPress,
 }) => {
   const getBackgroundColor = () => {
-    // Different background colors based on rank
-    switch (rank) {
-      case 1:
-        return '#e3f2fd'; // Light blue for the best price
-      case 2:
-        return '#e8f5e9'; // Light green for second best
-      case 3:
-        return '#fff8e1'; // Light yellow for third
-      default:
-        return '#ffffff'; // White for others
+    // Different background colors based on rank for valid prices
+    if (isValidPrice(price.price)) {
+      switch (rank) {
+        case 1:
+          return '#e3f2fd'; // Light blue for the best price
+        case 2:
+          return '#e8f5e9'; // Light green for second best
+        case 3:
+          return '#fff8e1'; // Light yellow for third
+        default:
+          return '#ffffff'; // White for others
+      }
+    } else {
+      // Subtle background for zero-price stations
+      return '#f9f9f9';
     }
   };
 
+  // Zero price items get a different style
+  const isZeroPrice = !isValidPrice(price.price);
+
   const getRankEmoji = () => {
+    // Only show rank emoji for valid prices in top 3
+    if (isZeroPrice) return '';
+
     switch (rank) {
       case 1:
         return '🥇';
@@ -83,6 +94,11 @@ const BestPriceCard: React.FC<BestPriceCardProps> = ({
       ? displayName.substring(0, 18) + '...'
       : displayName;
 
+  // Determine the rank display
+  const rankDisplay = isZeroPrice
+    ? '—' // Em dash for zero price items (to indicate no ranking)
+    : `#${rank}`;
+
   // Function to render source badge
   const renderSourceBadge = () => {
     if (price.source === 'community') {
@@ -94,9 +110,11 @@ const BestPriceCard: React.FC<BestPriceCardProps> = ({
       );
     } else {
       return (
-        <View style={styles.refDataBadge}>
+        <View style={[styles.refDataBadge, isZeroPrice && styles.noDataBadge]}>
           <MaterialIcons name='info-outline' size={12} color='#fff' />
-          <Text style={styles.sourceBadgeText}>DOE Ref. Data</Text>
+          <Text style={styles.sourceBadgeText}>
+            {isZeroPrice ? 'No Price Data' : 'DOE Ref. Data'}
+          </Text>
         </View>
       );
     }
@@ -110,14 +128,16 @@ const BestPriceCard: React.FC<BestPriceCardProps> = ({
     >
       <View style={styles.rankContainer}>
         <Text style={styles.rankText}>
-          {getRankEmoji()} #{rank}
+          {getRankEmoji()} {isZeroPrice ? '' : rankDisplay}
         </Text>
       </View>
 
       <View style={styles.contentContainer}>
         <View style={styles.headerRow}>
           <View style={styles.priceContainer}>
-            <Text style={styles.price}>{formatCurrency(price.price)}</Text>
+            <Text style={[styles.price, isZeroPrice && styles.noPrice]}>
+              {formatCurrency(price.price)}
+            </Text>
             <Text style={styles.stationName}>{displayTitle}</Text>
           </View>
         </View>
@@ -139,6 +159,11 @@ const BestPriceCard: React.FC<BestPriceCardProps> = ({
           <Text style={styles.fuelTypeLabel}>
             {formatFuelType(price.fuelType)}
           </Text>
+        )}
+
+        {/* Special message for unpriced stations to encourage users */}
+        {isZeroPrice && (
+          <Text style={styles.visitMessage}>Visit for current prices</Text>
         )}
 
         {!hasStationDetails && (
@@ -208,6 +233,10 @@ const styles = StyleSheet.create({
     color: '#2a9d8f',
     marginRight: 8,
   },
+  noPrice: {
+    color: '#999',
+    fontStyle: 'italic',
+  },
   stationName: {
     fontSize: 16,
     fontWeight: '500',
@@ -225,10 +254,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
-  },
-  rightDetails: {
-    flexDirection: 'row',
-    alignItems: 'center',
   },
   area: {
     fontSize: 14,
@@ -249,6 +274,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontStyle: 'italic',
     color: '#999',
+    marginTop: 2,
+  },
+  visitMessage: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    color: '#2a9d8f',
     marginTop: 2,
   },
   fuelTypeLabel: {
@@ -275,6 +306,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingVertical: 2,
     borderRadius: 4,
+  },
+  noDataBadge: {
+    backgroundColor: '#9E9E9E',
   },
   sourceBadgeText: {
     fontSize: 10,

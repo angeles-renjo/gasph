@@ -1,4 +1,6 @@
 // utils/priceStationConnector.ts
+// Revised approach to handle zero prices appropriately - keep the stations but display prices as "--"
+
 import { supabase } from '@/utils/supabase';
 import { GasStation } from '@/core/models/GasStation';
 import { FuelPrice } from '@/core/models/FuelPrice';
@@ -15,6 +17,7 @@ import {
   isPriceStationMatchValid,
   getConfidenceLevel,
 } from './priceWeighting';
+import { isValidPrice } from './formatters';
 
 /**
  * Interface for a matched price-station result
@@ -90,39 +93,75 @@ export const PriceStationConnector = {
             (price.area.toLowerCase() === 'ncr' && station.province === 'NCR'))
       );
 
-      if (exactMatches.length > 0) {
+      // Sort exact matches with valid prices first
+      const sortedExactMatches = exactMatches.sort((a, b) => {
+        // First prioritize by price validity (non-zero prices first)
+        const aValid = isValidPrice(a.common_price);
+        const bValid = isValidPrice(b.common_price);
+
+        if (aValid && !bValid) return -1;
+        if (!aValid && bValid) return 1;
+
+        // If both valid or both invalid, sort by fuel type or price value
+        return a.fuel_type.localeCompare(b.fuel_type);
+      });
+
+      if (sortedExactMatches.length > 0) {
         // Process exact matches with high confidence
-        exactMatches.forEach((price) => {
+        sortedExactMatches.forEach((price) => {
+          // Calculate match confidence, with a slight difference for zero prices
+          let confidence = 0.95; // Base high confidence for exact matches
+          if (!isValidPrice(price.common_price)) {
+            confidence *= 0.9; // Small penalty for zero prices (not too much)
+          }
+
           matchResults.push({
             price,
             stationId: station.id,
             stationName: station.name,
-            matchConfidence: 0.95,
-            confidenceLevel: 'High',
+            matchConfidence: confidence,
+            confidenceLevel: getConfidenceLevel(confidence),
           });
         });
       } else {
         // If no exact matches, use fuzzy matching
+        // Include all prices, but sort them appropriately
         prices.forEach((price) => {
           const confidence = calculatePriceStationMatchConfidence(
             price,
             station
           );
 
-          if (isPriceStationMatchValid(confidence)) {
+          // Apply small penalty for zero prices
+          let adjustedConfidence = confidence;
+          if (!isValidPrice(price.common_price)) {
+            adjustedConfidence *= 0.9; // 10% penalty (keep it minor)
+          }
+
+          if (isPriceStationMatchValid(adjustedConfidence)) {
             matchResults.push({
               price,
               stationId: station.id,
               stationName: station.name,
-              matchConfidence: confidence,
-              confidenceLevel: getConfidenceLevel(confidence),
+              matchConfidence: adjustedConfidence,
+              confidenceLevel: getConfidenceLevel(adjustedConfidence),
             });
           }
         });
       }
 
-      // Sort by confidence (highest first)
-      matchResults.sort((a, b) => b.matchConfidence - a.matchConfidence);
+      // Sort with valid prices first, then by confidence
+      matchResults.sort((a, b) => {
+        // First prioritize valid prices
+        const aValid = isValidPrice(a.price.common_price);
+        const bValid = isValidPrice(b.price.common_price);
+
+        if (aValid && !bValid) return -1;
+        if (!aValid && bValid) return 1;
+
+        // Then sort by confidence
+        return b.matchConfidence - a.matchConfidence;
+      });
 
       return matchResults;
     } catch (error) {
@@ -158,10 +197,16 @@ export const PriceStationConnector = {
     if (exactMatches.length > 0) {
       // Add exact matches with high confidence
       exactMatches.forEach((station) => {
+        // Apply small confidence penalty for zero prices
+        let confidence = 0.95; // High confidence for exact matches
+        if (!isValidPrice(price.common_price)) {
+          confidence *= 0.9; // 10% penalty (keep it minor)
+        }
+
         stationMatches.push({
           price,
           station,
-          confidence: 0.95, // High confidence for exact matches
+          confidence,
         });
       });
     }
@@ -173,7 +218,12 @@ export const PriceStationConnector = {
         return;
       }
 
-      const confidence = calculatePriceStationMatchConfidence(price, station);
+      let confidence = calculatePriceStationMatchConfidence(price, station);
+
+      // Apply small penalty for zero prices
+      if (!isValidPrice(price.common_price)) {
+        confidence *= 0.9; // 10% penalty (keep it minor)
+      }
 
       if (isPriceStationMatchValid(confidence)) {
         stationMatches.push({
@@ -184,154 +234,20 @@ export const PriceStationConnector = {
       }
     });
 
-    // Sort by confidence (highest first)
-    stationMatches.sort((a, b) => b.confidence - a.confidence);
+    // Sort by confidence with valid prices first
+    stationMatches.sort((a, b) => {
+      // First prioritize by price validity
+      const aValid = isValidPrice(a.price.common_price);
+      const bValid = isValidPrice(b.price.common_price);
+
+      if (aValid && !bValid) return -1;
+      if (!aValid && bValid) return 1;
+
+      // Then by confidence
+      return b.confidence - a.confidence;
+    });
 
     return stationMatches;
-  },
-
-  /**
-   * Enhanced function to match all prices with their best station matches
-   * @param prices Array of fuel prices
-   * @param stations Array of gas stations
-   * @returns Object with fuel types as keys and arrays of price-station matches as values
-   */
-  matchPricesWithStations(
-    prices: FuelPrice[],
-    stations: GasStation[]
-  ): Record<string, MatchedPriceStation[]> {
-    // Group prices by fuel type
-    const result: Record<string, MatchedPriceStation[]> = {};
-
-    // Group stations by brand and city for quicker lookup
-    const stationMap: Record<string, GasStation[]> = {};
-
-    stations.forEach((station) => {
-      const normalizedBrand = normalizeBrandName(station.brand);
-      const normalizedCity = normalizeCityName(station.city);
-      const key = `${normalizedBrand}_${normalizedCity}`;
-
-      if (!stationMap[key]) {
-        stationMap[key] = [];
-      }
-
-      stationMap[key].push(station);
-    });
-
-    // Process each price
-    prices.forEach((price) => {
-      const fuelType = price.fuel_type;
-
-      if (!result[fuelType]) {
-        result[fuelType] = [];
-      }
-
-      // Try direct matching first
-      const normalizedBrand = normalizeBrandName(price.brand);
-      const normalizedArea = price.area.toLowerCase();
-      const key = `${normalizedBrand}_${normalizedArea}`;
-
-      const directMatches = stationMap[key] || [];
-
-      if (directMatches.length > 0) {
-        // Add direct matches with high confidence
-        directMatches.forEach((station) => {
-          result[fuelType].push({
-            price,
-            station,
-            confidence: 0.95,
-          });
-        });
-      } else {
-        // Fall back to fuzzy matching
-        const fuzzyMatches = this.findMatchingStations(price, stations);
-
-        if (fuzzyMatches.length > 0) {
-          result[fuelType].push(...fuzzyMatches);
-        } else {
-          // If no station matches, still include the price without a station
-          result[fuelType].push({
-            price,
-            station: null as any, // Will be filtered out later where needed
-            confidence: 0.1,
-          });
-        }
-      }
-    });
-
-    // Sort each fuel type's matches by confidence
-    Object.keys(result).forEach((fuelType) => {
-      result[fuelType].sort((a, b) => b.confidence - a.confidence);
-    });
-
-    return result;
-  },
-
-  /**
-   * Get price display name for UI consistency
-   * @param price The fuel price entry
-   * @returns Name for display in the UI
-   */
-  getPriceDisplayName(price: FuelPrice): string {
-    return `${price.brand} - ${price.area}`;
-  },
-
-  /**
-   * Check if a station search query might be referring to a price entry
-   * @param query The search query
-   * @returns Boolean indicating if this might be a price-related search
-   */
-  isPriceRelatedSearch(query: string): boolean {
-    // Split the query to check if it has parts that might be brand+city
-    const parts = query.split(/\s+/);
-    return parts.length >= 2;
-  },
-
-  /**
-   * Get latest prices for all fuel types
-   * @returns Object with fuel types as keys and corresponding prices
-   */
-  async getLatestPrices(): Promise<Record<string, FuelPrice[]>> {
-    try {
-      // Get latest week
-      const { data: latestWeek } = await supabase
-        .from('fuel_prices')
-        .select('week_of')
-        .order('week_of', { ascending: false })
-        .limit(1)
-        .single();
-
-      if (!latestWeek) {
-        return {};
-      }
-
-      // Get all prices for the latest week
-      const { data: prices, error } = await supabase
-        .from('fuel_prices')
-        .select('*')
-        .eq('week_of', latestWeek.week_of);
-
-      if (error) {
-        console.error('Error fetching latest prices:', error);
-        return {};
-      }
-
-      // Group by fuel type
-      const pricesByFuelType: Record<string, FuelPrice[]> = {};
-
-      prices?.forEach((price) => {
-        if (!pricesByFuelType[price.fuel_type]) {
-          pricesByFuelType[price.fuel_type] = [];
-        }
-
-        pricesByFuelType[price.fuel_type].push(price);
-      });
-
-      return pricesByFuelType;
-    } catch (error) {
-      console.error('Error in getLatestPrices:', error);
-      return {};
-    }
   },
 
   /**
@@ -391,6 +307,14 @@ export const PriceStationConnector = {
         const pricesForType = prices.filter(
           (price) => price.fuel_type === fuelType
         );
+
+        // Count valid vs. invalid prices
+        const validPrices = pricesForType.filter((p) =>
+          isValidPrice(p.common_price)
+        );
+        const hasValidPrices = validPrices.length > 0;
+
+        // Use all prices, but tracking which ones are valid
         const matchResults: PriceMatchResult[] = [];
 
         for (const price of pricesForType) {
@@ -429,6 +353,11 @@ export const PriceStationConnector = {
             }
           }
 
+          // Apply small penalty for zero prices
+          if (!isValidPrice(price.common_price)) {
+            bestConfidence *= 0.9; // 10% penalty (keep it minor)
+          }
+
           // Add the best match (or just price if no good match)
           if (bestMatch && bestConfidence >= 0.5) {
             matchResults.push({
@@ -440,26 +369,46 @@ export const PriceStationConnector = {
             });
           } else {
             // Include price without station match
+            // Apply a light penalty for zero prices with no station match
+            let confidence = 0.3;
+            if (!isValidPrice(price.common_price)) {
+              confidence *= 0.9; // 10% penalty
+            }
+
             matchResults.push({
               price,
-              matchConfidence: 0.3,
+              matchConfidence: confidence,
               confidenceLevel: 'Low',
             });
           }
         }
 
-        // Sort by price first, then by confidence
+        // Sort matches: valid prices first by price value, then invalid prices by confidence
         matchResults.sort((a, b) => {
-          // Primary sort by price
-          const priceDiff = a.price.common_price - b.price.common_price;
-          if (Math.abs(priceDiff) > 0.01) return priceDiff;
+          // First prioritize valid prices
+          const aValid = isValidPrice(a.price.common_price);
+          const bValid = isValidPrice(b.price.common_price);
 
-          // Secondary sort by confidence (higher first)
+          if (aValid && !bValid) return -1;
+          if (!aValid && bValid) return 1;
+
+          // If both are valid, sort by price
+          if (aValid && bValid) {
+            return a.price.common_price - b.price.common_price;
+          }
+
+          // For invalid prices, sort by match confidence
           return b.matchConfidence - a.matchConfidence;
         });
 
-        // Take top 5 or fewer results
-        bestPricesByFuelType[fuelType] = matchResults.slice(0, 5);
+        // If we have enough valid matches, limit results more strictly
+        // Otherwise include more stations even without price data
+        let resultsLimit = 5;
+        if (!hasValidPrices && matchResults.length > 5) {
+          resultsLimit = Math.min(10, matchResults.length);
+        }
+
+        bestPricesByFuelType[fuelType] = matchResults.slice(0, resultsLimit);
       }
 
       return bestPricesByFuelType;
@@ -467,6 +416,110 @@ export const PriceStationConnector = {
       console.error('Error in getBestPricesForLocation:', error);
       return {};
     }
+  },
+
+  /**
+   * Enhanced function to match all prices with their best station matches
+   * @param prices Array of fuel prices
+   * @param stations Array of gas stations
+   * @returns Object with fuel types as keys and arrays of price-station matches as values
+   */
+  matchPricesWithStations(
+    prices: FuelPrice[],
+    stations: GasStation[]
+  ): Record<string, MatchedPriceStation[]> {
+    // Group prices by fuel type
+    const result: Record<string, MatchedPriceStation[]> = {};
+
+    // Group stations by brand and city for quicker lookup
+    const stationMap: Record<string, GasStation[]> = {};
+
+    stations.forEach((station) => {
+      const normalizedBrand = normalizeBrandName(station.brand);
+      const normalizedCity = normalizeCityName(station.city);
+      const key = `${normalizedBrand}_${normalizedCity}`;
+
+      if (!stationMap[key]) {
+        stationMap[key] = [];
+      }
+
+      stationMap[key].push(station);
+    });
+
+    // Process each fuel type with all prices - valid and invalid
+    const fuelTypes = [...new Set(prices.map((p) => p.fuel_type))];
+
+    fuelTypes.forEach((fuelType) => {
+      const pricesForType = prices.filter((p) => p.fuel_type === fuelType);
+      result[fuelType] = [];
+
+      // Process each price
+      pricesForType.forEach((price) => {
+        // Try direct matching first
+        const normalizedBrand = normalizeBrandName(price.brand);
+        const normalizedArea = price.area.toLowerCase();
+        const key = `${normalizedBrand}_${normalizedArea}`;
+
+        const directMatches = stationMap[key] || [];
+
+        if (directMatches.length > 0) {
+          // Add direct matches with high confidence
+          directMatches.forEach((station) => {
+            // Calculate confidence with small adjustment for zero prices
+            let confidence = 0.95; // Base high confidence
+            if (!isValidPrice(price.common_price)) {
+              confidence *= 0.9; // 10% penalty (keep it minor)
+            }
+
+            result[fuelType].push({
+              price,
+              station,
+              confidence,
+            });
+          });
+        } else {
+          // Fall back to fuzzy matching
+          const fuzzyMatches = this.findMatchingStations(price, stations);
+
+          if (fuzzyMatches.length > 0) {
+            result[fuelType].push(...fuzzyMatches);
+          } else {
+            // If no station matches, still include the price without a station
+            // With a small penalty for zero prices
+            let confidence = 0.1;
+            if (!isValidPrice(price.common_price)) {
+              confidence *= 0.9; // 10% penalty
+            }
+
+            result[fuelType].push({
+              price,
+              station: null as any, // Will be filtered out later where needed
+              confidence,
+            });
+          }
+        }
+      });
+
+      // Sort with valid prices first, then by confidence
+      result[fuelType].sort((a, b) => {
+        // First prioritize valid prices
+        const aValid = isValidPrice(a.price.common_price);
+        const bValid = isValidPrice(b.price.common_price);
+
+        if (aValid && !bValid) return -1;
+        if (!aValid && bValid) return 1;
+
+        // For valid prices, sort by price value
+        if (aValid && bValid) {
+          return a.price.common_price - b.price.common_price;
+        }
+
+        // For invalid prices, sort by confidence
+        return b.confidence - a.confidence;
+      });
+    });
+
+    return result;
   },
 
   /**
