@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   FlatList,
   TouchableOpacity,
   RefreshControl,
@@ -17,6 +16,9 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { ErrorDisplay } from '@/components/common/ErrorDisplay';
 import { LoadingIndicator } from '@/components/common/LoadingIndicator';
 import { FUEL_TYPES } from '@/utils/constants';
+
+// Make sure the import path is correct
+import { mainScreenStyle as styles } from '@/styles';
 
 export default function BestPricesScreen() {
   const { bestPrices, loading, error, locationName, refreshPrices } =
@@ -149,53 +151,3 @@ export default function BestPricesScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  header: {
-    padding: 16,
-    paddingBottom: 8,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  locationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  locationText: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 4,
-  },
-  filterContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  filterItem: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    marginRight: 8,
-    backgroundColor: '#e0e0e0',
-    borderRadius: 16,
-  },
-  filterItemSelected: {
-    backgroundColor: '#2a9d8f',
-  },
-  filterItemText: {
-    fontSize: 14,
-    color: '#333',
-  },
-  filterItemTextSelected: {
-    color: '#fff',
-  },
-  listContainer: {
-    padding: 16,
-    paddingTop: 8,
-  },
-});
