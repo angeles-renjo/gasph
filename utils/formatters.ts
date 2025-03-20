@@ -1,4 +1,4 @@
-// utils/formatters.ts with improved TypeScript typings
+// utils/formatters.ts
 /**
  * Format a number as Philippine Peso
  * Now handles zero values as a special case
@@ -128,4 +128,58 @@ export const formatDays = (days: string[] | null | undefined): string => {
 
   // Otherwise, list the days
   return days.join(', ');
+};
+
+/**
+ * Normalize fuel type names to standard forms to prevent duplicates
+ * @param fuelType Raw fuel type from database
+ * @returns Standardized fuel type name
+ */
+export const normalizeFuelType = (fuelType: string): string => {
+  if (!fuelType) return '';
+
+  const lowercase = fuelType.toLowerCase().trim();
+
+  // Handle diesel types
+  if (lowercase.includes('diesel')) {
+    if (lowercase.includes('plus') || lowercase.includes('premium')) {
+      return 'Diesel Plus';
+    }
+    return 'Diesel';
+  }
+
+  // Handle gasoline types
+  if (lowercase.includes('ron 91')) return 'Gasoline (RON 91)';
+  if (lowercase.includes('ron 95')) return 'Gasoline (RON 95)';
+  if (lowercase.includes('ron 97')) return 'Gasoline (RON 97)';
+  if (lowercase.includes('ron 100')) return 'Gasoline (RON 100)';
+
+  // Handle other fuel types
+  if (lowercase.includes('kerosene')) return 'Kerosene';
+  if (lowercase.includes('lpg')) return 'Auto LPG';
+
+  // Return original if no match
+  return fuelType;
+};
+
+/**
+ * Get a display-friendly shortened name for fuel types
+ * @param fuelType The full fuel type name
+ * @returns Shortened display name
+ */
+export const getShortFuelTypeName = (fuelType: string): string => {
+  // First normalize the fuel type
+  const normalizedType = normalizeFuelType(fuelType);
+
+  // Then create a display-friendly version
+  if (normalizedType === 'Diesel') return 'Diesel';
+  if (normalizedType === 'Diesel Plus') return 'Diesel Plus';
+  if (normalizedType === 'Gasoline (RON 91)') return 'RON 91';
+  if (normalizedType === 'Gasoline (RON 95)') return 'RON 95';
+  if (normalizedType === 'Gasoline (RON 97)') return 'RON 97';
+  if (normalizedType === 'Gasoline (RON 100)') return 'RON 100';
+  if (normalizedType === 'Kerosene') return 'Kerosene';
+  if (normalizedType === 'Auto LPG') return 'Auto LPG';
+
+  return fuelType;
 };

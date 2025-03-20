@@ -20,6 +20,8 @@ import {
   formatCurrency,
   formatDate,
   isValidPrice,
+  normalizeFuelType,
+  getShortFuelTypeName,
 } from '@/utils/formatters';
 import { FUEL_TYPES } from '@/utils/constants';
 import PriceCard from '@/components/price/PriceCard';
@@ -33,6 +35,7 @@ import { normalizeCityName } from '@/utils/areaMapping';
 // Extended FuelPrice type to include display type
 interface ExtendedFuelPrice extends FuelPrice {
   display_type?: string;
+  normalized_type?: string; // Added for deduplication
 }
 
 // Define NCR cities for reference
@@ -92,6 +95,7 @@ export default function StationDetailsScreen() {
   } = usePriceReporting(currentUser);
 
   // Load DOE prices with enhanced matching when station data is available
+  // Updated to use normalizeFuelType and deduplicate
   useEffect(() => {
     const fetchDoePrices = async () => {
       if (!station) return;
@@ -133,18 +137,52 @@ export default function StationDetailsScreen() {
             `Found ${matchedPrices.length} matched prices using enhanced connector`
           );
 
-          // Convert to ExtendedFuelPrice format without confidence
-          const enhancedPrices: ExtendedFuelPrice[] = matchedPrices.map(
-            (match) => ({
+          // NEW: Create a map to deduplicate by normalized fuel type
+          const fuelTypeMap = new Map<string, ExtendedFuelPrice>();
+
+          // Process and deduplicate prices
+          matchedPrices.forEach((match) => {
+            // Normalize the fuel type
+            const normalized = normalizeFuelType(match.price.fuel_type);
+
+            // Create extended price with normalized type
+            const extendedPrice: ExtendedFuelPrice = {
               ...match.price,
               display_type: getShortFuelTypeName(match.price.fuel_type),
-            })
+              normalized_type: normalized,
+            };
+
+            // Check if we already have this normalized type
+            if (
+              !fuelTypeMap.has(normalized) ||
+              // Prioritize prices with valid common price
+              (!isValidPrice(fuelTypeMap.get(normalized)?.common_price) &&
+                isValidPrice(extendedPrice.common_price)) ||
+              // If both valid, use the one with higher confidence
+              (isValidPrice(fuelTypeMap.get(normalized)?.common_price) &&
+                isValidPrice(extendedPrice.common_price) &&
+                match.matchConfidence > 0.8)
+            ) {
+              fuelTypeMap.set(normalized, extendedPrice);
+            }
+          });
+
+          // Convert map back to array and sort
+          const dedupedPrices = Array.from(fuelTypeMap.values());
+          dedupedPrices.sort((a, b) => {
+            // First sort by fuel category (Diesel, Gasoline, etc.)
+            const aType = a.normalized_type?.split(' ')[0] || '';
+            const bType = b.normalized_type?.split(' ')[0] || '';
+            if (aType !== bType) return aType.localeCompare(bType);
+
+            // Then by specific fuel type (RON 91, RON 95, etc.)
+            return a.fuel_type.localeCompare(b.fuel_type);
+          });
+
+          console.log(
+            `After deduplication: ${dedupedPrices.length} unique fuel types`
           );
-
-          // Sort by fuel type for consistent display
-          enhancedPrices.sort((a, b) => a.fuel_type.localeCompare(b.fuel_type));
-
-          setDoePrices(enhancedPrices);
+          setDoePrices(dedupedPrices);
         } else {
           console.log(
             'No matched prices found using enhanced connector, trying fallback'
@@ -159,43 +197,45 @@ export default function StationDetailsScreen() {
             .ilike('brand', station.brand)
             .order('fuel_type');
 
-          // If we find matches with simple matching, use those
+          // If we find matches with simple matching, use those but deduplicate
           if (data && data.length > 0) {
             console.log(`Found ${data.length} prices using simple matching`);
 
-            // Process diesel types like before
-            const processFuelTypes = (prices: FuelPrice[]) => {
-              const dieselOccurrences = prices.filter((p) =>
-                p.fuel_type.toLowerCase().includes('diesel')
-              ).length;
+            // NEW: Deduplicate by normalized type
+            const fuelTypeMap = new Map<string, ExtendedFuelPrice>();
 
-              let dieselCount = 0;
+            data.forEach((price) => {
+              const normalized = normalizeFuelType(price.fuel_type);
 
-              return prices.map((price) => {
-                const processedPrice = { ...price } as ExtendedFuelPrice;
+              const extendedPrice: ExtendedFuelPrice = {
+                ...price,
+                display_type: getShortFuelTypeName(price.fuel_type),
+                normalized_type: normalized,
+              };
 
-                if (
-                  price.fuel_type.toLowerCase().includes('diesel') &&
-                  dieselOccurrences > 1
-                ) {
-                  dieselCount++;
+              // Add if not exist or replace if this has valid price and existing doesn't
+              if (
+                !fuelTypeMap.has(normalized) ||
+                (!isValidPrice(fuelTypeMap.get(normalized)?.common_price) &&
+                  isValidPrice(extendedPrice.common_price))
+              ) {
+                fuelTypeMap.set(normalized, extendedPrice);
+              }
+            });
 
-                  if (dieselCount === 1) {
-                    processedPrice.display_type = 'Diesel';
-                  } else {
-                    processedPrice.display_type = 'Diesel Plus';
-                  }
-                } else {
-                  processedPrice.display_type = getShortFuelTypeName(
-                    price.fuel_type
-                  );
-                }
+            // Convert to array and sort
+            const dedupedPrices = Array.from(fuelTypeMap.values());
+            dedupedPrices.sort((a, b) => {
+              const aType = a.normalized_type?.split(' ')[0] || '';
+              const bType = b.normalized_type?.split(' ')[0] || '';
+              if (aType !== bType) return aType.localeCompare(bType);
+              return a.fuel_type.localeCompare(b.fuel_type);
+            });
 
-                return processedPrice;
-              });
-            };
-
-            setDoePrices(processFuelTypes(data));
+            console.log(
+              `After deduplication: ${dedupedPrices.length} unique fuel types`
+            );
+            setDoePrices(dedupedPrices);
           } else {
             // If no match at all, try an even more relaxed approach with NCR area
             const { data: ncrData } = await supabase
@@ -211,16 +251,39 @@ export default function StationDetailsScreen() {
                 `Found ${ncrData.length} prices using NCR area matching`
               );
 
-              // Process with simpler display
-              const processedPrices = ncrData.map((price) => {
-                const processedPrice = { ...price } as ExtendedFuelPrice;
-                processedPrice.display_type = getShortFuelTypeName(
-                  price.fuel_type
-                );
-                return processedPrice;
+              // NEW: Deduplicate these as well
+              const fuelTypeMap = new Map<string, ExtendedFuelPrice>();
+
+              ncrData.forEach((price) => {
+                const normalized = normalizeFuelType(price.fuel_type);
+
+                const extendedPrice: ExtendedFuelPrice = {
+                  ...price,
+                  display_type: getShortFuelTypeName(price.fuel_type),
+                  normalized_type: normalized,
+                };
+
+                if (
+                  !fuelTypeMap.has(normalized) ||
+                  (!isValidPrice(fuelTypeMap.get(normalized)?.common_price) &&
+                    isValidPrice(extendedPrice.common_price))
+                ) {
+                  fuelTypeMap.set(normalized, extendedPrice);
+                }
               });
 
-              setDoePrices(processedPrices);
+              const dedupedPrices = Array.from(fuelTypeMap.values());
+              dedupedPrices.sort((a, b) => {
+                const aType = a.normalized_type?.split(' ')[0] || '';
+                const bType = b.normalized_type?.split(' ')[0] || '';
+                if (aType !== bType) return aType.localeCompare(bType);
+                return a.fuel_type.localeCompare(b.fuel_type);
+              });
+
+              console.log(
+                `After deduplication: ${dedupedPrices.length} unique fuel types`
+              );
+              setDoePrices(dedupedPrices);
             }
           }
         }
@@ -318,16 +381,6 @@ export default function StationDetailsScreen() {
         ))}
       </View>
     );
-  };
-
-  // Simplified function to get display name for fuel type
-  const getShortFuelTypeName = (fuelType: string): string => {
-    if (fuelType.includes('Diesel')) return 'Diesel';
-    if (fuelType.includes('RON 95')) return 'RON 95';
-    if (fuelType.includes('RON 91')) return 'RON 91';
-    if (fuelType.includes('RON 97')) return 'RON 97';
-    if (fuelType.includes('RON 100')) return 'RON 100';
-    return fuelType;
   };
 
   // Render the official prices section with the column format - simplified without confidence
