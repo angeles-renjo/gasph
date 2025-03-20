@@ -11,31 +11,39 @@ import {
 } from '../../utils/formatters';
 import { FuelPrice } from '../../core/models/FuelPrice';
 
+// Helper function to create a price object with customizable parameters
+const createTestPrice = (overrides: Partial<FuelPrice> = {}): FuelPrice => ({
+  id: '1',
+  fuel_type: 'Diesel',
+  min_price: 0,
+  common_price: 0,
+  max_price: 0,
+  brand: 'Shell',
+  area: 'Quezon City',
+  week_of: new Date(),
+  updated_at: new Date(),
+  ...overrides,
+});
+
 // Sample test data
 const createSamplePrices = (): FuelPrice[] => [
-  {
+  createTestPrice({
     id: '1',
     fuel_type: 'Diesel',
     min_price: 50.25,
     common_price: 52.3,
     max_price: 54.4,
     brand: 'Shell',
-    area: 'Quezon City',
-    week_of: new Date(),
-    updated_at: new Date(),
-  },
-  {
+  }),
+  createTestPrice({
     id: '2',
     fuel_type: 'Diesel Plus',
     min_price: 52.8,
     common_price: 54.9,
     max_price: 56.7,
     brand: 'Shell',
-    area: 'Quezon City',
-    week_of: new Date(),
-    updated_at: new Date(),
-  },
-  {
+  }),
+  createTestPrice({
     id: '3',
     fuel_type: 'diesel', // lowercase to test normalization
     min_price: 0,
@@ -43,31 +51,23 @@ const createSamplePrices = (): FuelPrice[] => [
     max_price: 0,
     brand: 'Petron',
     area: 'Makati City',
-    week_of: new Date(),
-    updated_at: new Date(),
-  },
-  {
+  }),
+  createTestPrice({
     id: '4',
     fuel_type: 'Gasoline (RON 95)',
     min_price: 60.1,
     common_price: 62.25,
     max_price: 64.4,
     brand: 'Shell',
-    area: 'Quezon City',
-    week_of: new Date(),
-    updated_at: new Date(),
-  },
-  {
+  }),
+  createTestPrice({
     id: '5',
     fuel_type: 'Diesel', // Duplicate fuel type
     min_price: 0,
     common_price: 0, // Invalid price
     max_price: 0,
     brand: 'Caltex',
-    area: 'Quezon City',
-    week_of: new Date(),
-    updated_at: new Date(),
-  },
+  }),
 ];
 
 // Create matched prices sample
@@ -136,68 +136,29 @@ describe('priceUtils', () => {
   });
 
   describe('hasValidPriceData', () => {
-    it('should detect valid min price', () => {
-      const price = {
-        id: '1',
-        fuel_type: 'Diesel',
-        min_price: 50.25,
-        common_price: 0,
-        max_price: 0,
-        brand: 'Shell',
-        area: 'Quezon City',
-        week_of: new Date(),
-        updated_at: new Date(),
-      };
-
-      expect(hasValidPriceData(price)).toBe(true);
-    });
-
-    it('should detect valid common price', () => {
-      const price = {
-        id: '1',
-        fuel_type: 'Diesel',
-        min_price: 0,
-        common_price: 52.3,
-        max_price: 0,
-        brand: 'Shell',
-        area: 'Quezon City',
-        week_of: new Date(),
-        updated_at: new Date(),
-      };
-
-      expect(hasValidPriceData(price)).toBe(true);
-    });
-
-    it('should detect valid max price', () => {
-      const price = {
-        id: '1',
-        fuel_type: 'Diesel',
-        min_price: 0,
-        common_price: 0,
-        max_price: 54.4,
-        brand: 'Shell',
-        area: 'Quezon City',
-        week_of: new Date(),
-        updated_at: new Date(),
-      };
-
-      expect(hasValidPriceData(price)).toBe(true);
-    });
-
-    it('should identify invalid price objects', () => {
-      const price = {
-        id: '1',
-        fuel_type: 'Diesel',
-        min_price: 0,
-        common_price: 0,
-        max_price: 0,
-        brand: 'Shell',
-        area: 'Quezon City',
-        week_of: new Date(),
-        updated_at: new Date(),
-      };
-
-      expect(hasValidPriceData(price)).toBe(false);
+    it.each([
+      {
+        scenario: 'valid min price',
+        price: createTestPrice({ min_price: 50.25 }),
+        expected: true,
+      },
+      {
+        scenario: 'valid common price',
+        price: createTestPrice({ common_price: 52.3 }),
+        expected: true,
+      },
+      {
+        scenario: 'valid max price',
+        price: createTestPrice({ max_price: 54.4 }),
+        expected: true,
+      },
+      {
+        scenario: 'invalid price object',
+        price: createTestPrice(),
+        expected: false,
+      },
+    ])('should handle $scenario', ({ price, expected }) => {
+      expect(hasValidPriceData(price)).toBe(expected);
     });
   });
 
