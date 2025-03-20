@@ -56,12 +56,6 @@ export const stationDetailsStyles = StyleSheet.create({
     shadowRadius: 1,
     elevation: 1,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
@@ -71,40 +65,27 @@ export const stationDetailsStyles = StyleSheet.create({
     fontSize: 16,
     color: '#444',
   },
-  amenitiesContainer: {
+  sectionTitleContainer: {
+    marginBottom: 4,
+  },
+  sectionHeaderControls: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  amenityTag: {
-    backgroundColor: '#e0f2f1',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 4,
-    margin: 4,
-  },
-  amenityText: {
-    fontSize: 14,
-    color: '#00796b',
-  },
-  noData: {
-    fontSize: 16,
-    color: '#666',
-    fontStyle: 'italic',
-  },
-  noPricesContainer: {
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 20,
+    marginBottom: 16,
   },
-  reportFirstButton: {
-    marginTop: 16,
-    backgroundColor: '#2196F3',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+  cycleInfoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
   },
-  reportFirstText: {
-    color: '#fff',
-    fontWeight: '500',
+  cycleInfoText: {
+    fontSize: 12,
+    color: '#666',
+    marginLeft: 4,
   },
   addPriceButton: {
     flexDirection: 'row',
@@ -140,7 +121,52 @@ export const stationDetailsStyles = StyleSheet.create({
     fontWeight: '500',
     marginLeft: 8,
   },
-  // Column price format styles - simplified without confidence
+  noPricesContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  noData: {
+    fontSize: 16,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  reportFirstButton: {
+    marginTop: 16,
+    backgroundColor: '#2196F3',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  reportFirstText: {
+    color: '#fff',
+    fontWeight: '500',
+  },
+  amenitiesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  amenityTag: {
+    backgroundColor: '#e0f2f1',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    margin: 4,
+  },
+  amenityText: {
+    fontSize: 14,
+    color: '#00796b',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 8,
+  },
   officialPricesContainer: {
     backgroundColor: '#f8f9fa',
     padding: 12,
@@ -187,6 +213,10 @@ export const stationDetailsStyles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '500',
   },
+  noPrice: {
+    color: '#999',
+    fontStyle: 'italic',
+  },
   officialNoteText: {
     fontSize: 12,
     color: '#757575',
@@ -194,60 +224,23 @@ export const stationDetailsStyles = StyleSheet.create({
     marginTop: 12,
     textAlign: 'right',
   },
-  loadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-  },
-  loadingText: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 8,
-  },
-  cycleInfoContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f0f0f0',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    marginLeft: 'auto',
-    marginRight: 8,
-  },
-  cycleInfoText: {
-    fontSize: 12,
-    color: '#666',
-    marginLeft: 4,
-  },
-  sectionTitleContainer: {
-    marginBottom: 4,
-  },
-  sectionHeaderControls: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  noPrice: {
-    color: '#999',
-    fontStyle: 'italic',
-  },
   noDataContainer: {
     borderLeftColor: '#9e9e9e',
     backgroundColor: '#f9f9f9',
+    padding: 12,
+    borderRadius: 8,
   },
   noDataRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
+    padding: 8,
   },
   noDataText: {
     fontSize: 14,
     color: '#666',
     fontStyle: 'italic',
     marginLeft: 8,
+    flex: 1,
   },
   noDataSubText: {
     fontSize: 12,
