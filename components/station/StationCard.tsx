@@ -3,9 +3,14 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { GasStation } from '@/core/models/GasStation';
 import { MaterialIcons } from '@expo/vector-icons';
-import { formatCurrency, isValidPrice } from '@/utils/formatters';
-import { supabase } from '@/utils/supabase';
+import {
+  formatCurrency,
+  isValidPrice,
+  normalizeFuelType,
+  getShortFuelTypeName,
+} from '@/utils/formatters';
 import { ActivityIndicator } from 'react-native';
+import { PriceStationConnector } from '@/utils/priceStationConnector';
 
 interface StationCardProps {
   station: GasStation;
@@ -13,73 +18,83 @@ interface StationCardProps {
   onPress?: () => void;
 }
 
+interface ExtendedFuelPrice {
+  id: string;
+  fuel_type: string;
+  min_price: number;
+  common_price: number;
+  max_price: number;
+  week_of: Date;
+  display_type?: string;
+  normalized_type?: string;
+}
+
 export const StationCard: React.FC<StationCardProps> = ({
   station,
   distance,
   onPress,
 }) => {
-  const [prices, setPrices] = useState<any[]>([]);
+  const [prices, setPrices] = useState<ExtendedFuelPrice[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Fetch prices for this station using brand + city matching
+  // Fetch prices for this station using PriceStationConnector for consistency
   useEffect(() => {
     const fetchPrices = async () => {
       if (!station) return;
 
       setLoading(true);
       try {
-        // Get latest week_of date
-        const { data: latestWeek } = await supabase
-          .from('fuel_prices')
-          .select('week_of')
-          .order('week_of', { ascending: false })
-          .limit(1)
-          .single();
+        console.log(`StationCard: Fetching prices for ${station.name}`);
 
-        if (!latestWeek) {
-          setLoading(false);
-          return;
-        }
-
-        // Get prices for this station's brand and city - exact match
-        const { data } = await supabase
-          .from('fuel_prices')
-          .select('*')
-          .eq('week_of', latestWeek.week_of)
-          .eq('area', station.city)
-          .ilike('brand', station.brand) // Case-insensitive match for brand
-          .order('fuel_type');
-
-        // Check if any non-zero prices exist
-        const validPrices = (data || []).filter((price) =>
-          isValidPrice(price.common_price)
+        // Use PriceStationConnector for consistent price fetching
+        const matchedPrices = await PriceStationConnector.getPricesForStation(
+          station
         );
 
-        // Get only the main fuel types - prioritize non-zero prices
-        const fuelTypesToShow = [
-          'Gasoline (RON 95)',
-          'Gasoline (RON 91)',
-          'Diesel',
-        ];
-
-        // If we have valid prices, prioritize them
-        let mainFuels: any[] = [];
-
-        if (validPrices.length > 0) {
-          // Only show valid prices - filter by main fuel types
-          mainFuels = validPrices.filter((price) =>
-            fuelTypesToShow.includes(price.fuel_type)
+        if (matchedPrices.length > 0) {
+          console.log(
+            `StationCard: Found ${matchedPrices.length} matched prices`
           );
-        } else if (data && data.length > 0) {
-          // No valid prices, but show the available main fuel types anyway
-          mainFuels = data.filter((price) =>
-            fuelTypesToShow.includes(price.fuel_type)
+
+          // Process prices to fit our ExtendedFuelPrice interface
+          const processedPrices: ExtendedFuelPrice[] = matchedPrices.map(
+            (match) => ({
+              id: match.price.id,
+              fuel_type: match.price.fuel_type,
+              min_price: match.price.min_price,
+              common_price: match.price.common_price,
+              max_price: match.price.max_price,
+              week_of: match.price.week_of,
+              display_type: getShortFuelTypeName(match.price.fuel_type),
+              normalized_type: normalizeFuelType(match.price.fuel_type),
+            })
           );
+
+          // Get only the main fuel types (Diesel, RON 95, RON 91)
+          const fuelTypesToShow = [
+            'Diesel',
+            'Gasoline (RON 95)',
+            'Gasoline (RON 91)',
+          ];
+
+          // Filter to only show main fuel types
+          const mainFuels = processedPrices.filter((price) =>
+            fuelTypesToShow.includes(normalizeFuelType(price.fuel_type))
+          );
+
+          console.log(
+            `StationCard: Filtered to ${mainFuels.length} main fuel types`
+          );
+
+          // Cap at 3 fuel types for the card
+          setPrices(mainFuels.slice(0, 3));
+        } else {
+          console.log(`StationCard: No prices found for station`);
+          setPrices([]);
         }
-
-        setPrices(mainFuels);
       } catch (error) {
-        console.error('Error fetching prices:', error);
+        console.error('StationCard: Error fetching prices:', error);
+        setPrices([]);
       } finally {
         setLoading(false);
       }
@@ -137,16 +152,6 @@ export const StationCard: React.FC<StationCardProps> = ({
     }
   };
 
-  // Simplified function to get display name for fuel type
-  const getShortFuelTypeName = (fuelType: string): string => {
-    if (fuelType.includes('Diesel')) return 'Diesel';
-    if (fuelType.includes('RON 95')) return 'RON 95';
-    if (fuelType.includes('RON 91')) return 'RON 91';
-    if (fuelType.includes('RON 97')) return 'RON 97';
-    if (fuelType.includes('RON 100')) return 'RON 100';
-    return fuelType;
-  };
-
   // Check if we have any valid prices
   const hasValidPrices = prices.some((price) =>
     isValidPrice(price.common_price)
@@ -191,9 +196,7 @@ export const StationCard: React.FC<StationCardProps> = ({
             {/* One row per fuel type */}
             {prices.map((price) => (
               <View key={price.id} style={styles.priceRow}>
-                <Text style={styles.fuelType}>
-                  {getShortFuelTypeName(price.fuel_type)}:
-                </Text>
+                <Text style={styles.fuelType}>{price.display_type}:</Text>
                 <Text
                   style={[
                     styles.price,
