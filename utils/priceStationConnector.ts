@@ -1,27 +1,62 @@
-// utils/priceStationConnector.ts
-// Revised to implement deduplication by normalized fuel type
+// /utils/priceStationConnector.ts
+// Connects fuel prices with gas stations using fuzzy matching and confidence scoring
 
-import { supabase } from '@/utils/supabase';
 import { GasStation } from '@/core/models/GasStation';
 import { FuelPrice } from '@/core/models/FuelPrice';
+import { getConfidenceLevel } from '@/utils/priceWeighting';
+import { normalizeFuelType } from '@/utils/formatters';
+
+// Import utility functions from our new structure
 import {
-  normalizeBrandName,
-  calculateBrandSimilarity,
-} from './brandNormalization';
-import {
-  normalizeCityName,
-  calculateAreaCityMatchConfidence,
-} from './areaMapping';
-import {
-  calculatePriceStationMatchConfidence,
-  isPriceStationMatchValid,
-  getConfidenceLevel,
-} from './priceWeighting';
-import {
-  isValidPrice,
-  normalizeFuelType,
-  getShortFuelTypeName,
-} from './formatters';
+  // Database queries
+  getLatestWeek,
+  getPricesForWeek,
+  getNCRPricesForWeek,
+  getHistoricalPrices,
+
+  // Matchers
+  adjustConfidenceForInvalidPrice,
+  findExactMatches,
+  findBestMatchingStation,
+  findExactStationMatches,
+  isNCRCity,
+  calculateAreaMatch,
+  calculateCombinedMatchConfidence,
+  isMatchValid,
+
+  // Sorters
+  sortPricesByValidityAndType,
+  sortPriceResults,
+  deduplicateByFuelType,
+  sortDeduplicatedResults,
+  sortMatchedStations,
+  deduplicateByStation,
+  processMatchesForFuelType,
+  sortPricesByWeekDescending,
+
+  // Transformers
+  groupStationsByCity,
+  groupStationsByBrandAndCity,
+  groupPricesByWeek,
+  findBestPriceForEachWeek,
+  groupPricesByNormalizedType,
+} from '@/utils/priceConnector';
+
+/**
+ * Represents brand and city information for matching
+ */
+export interface LocationIdentifier {
+  brand: string;
+  area: string;
+}
+
+/**
+ * Confidence information for a match
+ */
+export interface ConfidenceScore {
+  value: number;
+  level: 'High' | 'Medium' | 'Low';
+}
 
 /**
  * Interface for a matched price-station result
@@ -50,157 +85,46 @@ export interface PriceMatchResult {
 export const PriceStationConnector = {
   /**
    * Get prices for a specific gas station with enhanced matching
-   * Updated to deduplicate by normalized fuel type
    * @param station The gas station
    * @returns Array of matching fuel prices with confidence scores
    */
   async getPricesForStation(station: GasStation): Promise<PriceMatchResult[]> {
     try {
       // Get latest week
-      const { data: latestWeek } = await supabase
-        .from('fuel_prices')
-        .select('week_of')
-        .order('week_of', { ascending: false })
-        .limit(1)
-        .single();
-
+      const latestWeek = await getLatestWeek();
       if (!latestWeek) {
         return [];
       }
 
       // Get prices from the latest week
-      const { data: prices, error } = await supabase
-        .from('fuel_prices')
-        .select('*')
-        .eq('week_of', latestWeek.week_of);
-
-      if (error) {
-        console.error('Error fetching prices for station:', error);
+      const prices = await getPricesForWeek(latestWeek);
+      if (prices.length === 0) {
         return [];
       }
 
-      if (!prices || prices.length === 0) {
-        return [];
-      }
+      // Prepare normalized values for comparison
+      const normalizedStationBrand = station.brand.toLowerCase();
+      const normalizedStationCity = station.city.toLowerCase();
 
-      // Calculate confidence for each price
-      const allMatchResults: PriceMatchResult[] = [];
-
-      // Normalize the station brand and city for comparison
-      const normalizedStationBrand = normalizeBrandName(station.brand);
-      const normalizedStationCity = normalizeCityName(station.city);
-
-      // First try exact matches
-      const exactMatches = prices.filter(
-        (price) =>
-          normalizeBrandName(price.brand) === normalizedStationBrand &&
-          (price.area.toLowerCase() === normalizedStationCity.toLowerCase() ||
-            (price.area.toLowerCase() === 'ncr' && station.province === 'NCR'))
+      // Process matches using different strategies
+      const allMatchResults = await this.processPriceMatchesForStation(
+        prices,
+        station,
+        normalizedStationBrand,
+        normalizedStationCity
       );
 
-      // Sort exact matches with valid prices first
-      const sortedExactMatches = exactMatches.sort((a, b) => {
-        // First prioritize by price validity (non-zero prices first)
-        const aValid = isValidPrice(a.common_price);
-        const bValid = isValidPrice(b.common_price);
+      // Deduplicate by normalized fuel type
+      const dedupedResults = deduplicateByFuelType(allMatchResults);
 
-        if (aValid && !bValid) return -1;
-        if (!aValid && bValid) return 1;
-
-        // If both valid or both invalid, sort by fuel type or price value
-        return a.fuel_type.localeCompare(b.fuel_type);
-      });
-
-      if (sortedExactMatches.length > 0) {
-        // Process exact matches with high confidence
-        sortedExactMatches.forEach((price) => {
-          // Calculate match confidence, with a slight difference for zero prices
-          let confidence = 0.95; // Base high confidence for exact matches
-          if (!isValidPrice(price.common_price)) {
-            confidence *= 0.9; // Small penalty for zero prices (not too much)
-          }
-
-          allMatchResults.push({
-            price,
-            stationId: station.id,
-            stationName: station.name,
-            matchConfidence: confidence,
-            confidenceLevel: getConfidenceLevel(confidence),
-          });
-        });
-      } else {
-        // If no exact matches, use fuzzy matching
-        // Include all prices, but sort them appropriately
-        prices.forEach((price) => {
-          const confidence = calculatePriceStationMatchConfidence(
-            price,
-            station
-          );
-
-          // Apply small penalty for zero prices
-          let adjustedConfidence = confidence;
-          if (!isValidPrice(price.common_price)) {
-            adjustedConfidence *= 0.9; // 10% penalty (keep it minor)
-          }
-
-          if (isPriceStationMatchValid(adjustedConfidence)) {
-            allMatchResults.push({
-              price,
-              stationId: station.id,
-              stationName: station.name,
-              matchConfidence: adjustedConfidence,
-              confidenceLevel: getConfidenceLevel(adjustedConfidence),
-            });
-          }
-        });
-      }
-
-      // DEDUPLICATION: Group by normalized fuel type
-      const fuelTypeMap = new Map<string, PriceMatchResult>();
-
-      allMatchResults.forEach((result) => {
-        const normalizedType = normalizeFuelType(result.price.fuel_type);
-
-        // Add if not exists or if this is a better match than existing
-        if (
-          !fuelTypeMap.has(normalizedType) ||
-          // Prioritize prices with valid data
-          (!isValidPrice(fuelTypeMap.get(normalizedType)!.price.common_price) &&
-            isValidPrice(result.price.common_price)) ||
-          // Or higher confidence matches
-          fuelTypeMap.get(normalizedType)!.matchConfidence <
-            result.matchConfidence
-        ) {
-          fuelTypeMap.set(normalizedType, result);
-        }
-      });
-
-      // Convert map back to array
-      const dedupedResults = Array.from(fuelTypeMap.values());
-
-      // Sort with valid prices first, then by fuel type category
-      dedupedResults.sort((a, b) => {
-        // First prioritize valid prices
-        const aValid = isValidPrice(a.price.common_price);
-        const bValid = isValidPrice(b.price.common_price);
-
-        if (aValid && !bValid) return -1;
-        if (!aValid && bValid) return 1;
-
-        // Then sort by fuel category and type
-        const aType = normalizeFuelType(a.price.fuel_type).split(' ')[0];
-        const bType = normalizeFuelType(b.price.fuel_type).split(' ')[0];
-
-        if (aType !== bType) return aType.localeCompare(bType);
-
-        // Then by specific fuel type
-        return a.price.fuel_type.localeCompare(b.price.fuel_type);
-      });
+      // Sort results
+      const sortedResults = sortDeduplicatedResults(dedupedResults);
 
       console.log(
-        `PriceStationConnector: Deduplication reduced ${allMatchResults.length} matches to ${dedupedResults.length} unique fuel types`
+        `PriceStationConnector: Deduplication reduced ${allMatchResults.length} matches to ${sortedResults.length} unique fuel types`
       );
-      return dedupedResults;
+
+      return sortedResults;
     } catch (error) {
       console.error('Error in getPricesForStation:', error);
       return [];
@@ -208,8 +132,106 @@ export const PriceStationConnector = {
   },
 
   /**
+   * Process matches using exact and fuzzy strategies
+   * Extracted to reduce complexity of main method
+   */
+  async processPriceMatchesForStation(
+    prices: FuelPrice[],
+    station: GasStation,
+    normalizedStationBrand: string,
+    normalizedStationCity: string
+  ): Promise<PriceMatchResult[]> {
+    const allMatchResults: PriceMatchResult[] = [];
+
+    // First try exact matches
+    const exactMatches = findExactMatches(
+      prices,
+      normalizedStationBrand,
+      normalizedStationCity,
+      station.province
+    );
+
+    // Sort exact matches with valid prices first
+    const sortedExactMatches = sortPricesByValidityAndType(exactMatches);
+
+    if (sortedExactMatches.length > 0) {
+      // Process exact matches with high confidence
+      this.processExactPriceMatches(
+        sortedExactMatches,
+        station,
+        allMatchResults
+      );
+    } else {
+      // If no exact matches, use fuzzy matching with all prices
+      this.processFuzzyPriceMatches(prices, station, allMatchResults);
+    }
+
+    return allMatchResults;
+  },
+
+  /**
+   * Process exact price matches for a station
+   */
+  processExactPriceMatches(
+    prices: FuelPrice[],
+    station: GasStation,
+    results: PriceMatchResult[]
+  ): void {
+    prices.forEach((price) => {
+      // Calculate match confidence, with a slight difference for zero prices
+      let confidence = 0.95; // Base high confidence for exact matches
+      confidence = adjustConfidenceForInvalidPrice(confidence, price);
+
+      results.push({
+        price,
+        stationId: station.id,
+        stationName: station.name,
+        matchConfidence: confidence,
+        confidenceLevel: getConfidenceLevel(confidence),
+      });
+    });
+  },
+
+  /**
+   * Process prices using fuzzy matching
+   */
+  processFuzzyPriceMatches(
+    prices: FuelPrice[],
+    station: GasStation,
+    results: PriceMatchResult[]
+  ): void {
+    // Build the results array with all prices that meet the match threshold
+    prices.forEach((price) => {
+      // Get matching confidence from external utility
+      const confidence = this.calculateMatchConfidence(price, station);
+      const adjustedConfidence = adjustConfidenceForInvalidPrice(
+        confidence,
+        price
+      );
+
+      // Only include matches that meet our validity threshold
+      if (adjustedConfidence >= 0.5) {
+        results.push({
+          price,
+          stationId: station.id,
+          stationName: station.name,
+          matchConfidence: adjustedConfidence,
+          confidenceLevel: getConfidenceLevel(adjustedConfidence),
+        });
+      }
+    });
+  },
+
+  /**
+   * Calculate match confidence for a price and station
+   * Now uses the utility function from matchers.ts
+   */
+  calculateMatchConfidence(price: FuelPrice, station: GasStation): number {
+    return calculateCombinedMatchConfidence(price, station);
+  },
+
+  /**
    * Find matching stations for a specific price entry
-   * Updated to use normalized fuel types
    * @param price The fuel price entry
    * @param stations Array of stations to search
    * @returns Matching stations ranked by confidence
@@ -218,80 +240,149 @@ export const PriceStationConnector = {
     price: FuelPrice,
     stations: GasStation[]
   ): MatchedPriceStation[] {
-    // Normalize the price brand and area for comparison
-    const normalizedPriceBrand = normalizeBrandName(price.brand);
-    const normalizedPriceArea = price.area.toLowerCase();
-    const normalizedFuelType = normalizeFuelType(price.fuel_type);
+    // First get exact matches
+    const exactMatches = this.getExactMatchingStations(price, stations);
 
-    // Map to store results with confidence scores
-    const stationMatches: MatchedPriceStation[] = [];
-
-    // First try exact matches
-    const exactMatches = stations.filter(
-      (station) =>
-        normalizeBrandName(station.brand) === normalizedPriceBrand &&
-        normalizeCityName(station.city).toLowerCase() === normalizedPriceArea
+    // Then get fuzzy matches from stations not already exactly matched
+    const fuzzyMatches = this.getFuzzyMatchingStations(
+      price,
+      stations,
+      exactMatches
     );
 
-    if (exactMatches.length > 0) {
-      // Add exact matches with high confidence
-      exactMatches.forEach((station) => {
-        // Apply small confidence penalty for zero prices
-        let confidence = 0.95; // High confidence for exact matches
-        if (!isValidPrice(price.common_price)) {
-          confidence *= 0.9; // 10% penalty (keep it minor)
-        }
+    // Combine matches
+    const allMatches = [...exactMatches, ...fuzzyMatches];
 
-        stationMatches.push({
-          price,
-          station,
-          confidence,
-        });
-      });
-    }
+    // Sort combined matches
+    return this.sortMatchesByConfidence(allMatches);
+  },
 
-    // Then try fuzzy matching for all stations
+  /**
+   * Sort matches by confidence and price validity
+   */
+  sortMatchesByConfidence(
+    matches: MatchedPriceStation[]
+  ): MatchedPriceStation[] {
+    // Use the imported sorting function
+    return sortMatchedStations(matches);
+  },
+
+  /**
+   * Get exact matches between price and stations
+   */
+  getExactMatchingStations(
+    price: FuelPrice,
+    stations: GasStation[]
+  ): MatchedPriceStation[] {
+    // Normalize values for comparison
+    const normalizedBrand = price.brand.toLowerCase();
+    const normalizedArea = price.area.toLowerCase();
+
+    // Get exact matching stations
+    const exactStations = this.findExactStationsByBrandAndArea(
+      stations,
+      normalizedBrand,
+      normalizedArea
+    );
+
+    // Convert to MatchedPriceStation objects
+    return this.createMatchesForStations(price, exactStations, 0.95);
+  },
+
+  /**
+   * Find stations that exactly match the brand and area
+   */
+  findExactStationsByBrandAndArea(
+    stations: GasStation[],
+    brand: string,
+    area: string
+  ): GasStation[] {
+    return findExactStationMatches(stations, brand, area);
+  },
+
+  /**
+   * Create match objects for a list of stations with the given base confidence
+   */
+  createMatchesForStations(
+    price: FuelPrice,
+    stations: GasStation[],
+    baseConfidence: number
+  ): MatchedPriceStation[] {
+    const matches: MatchedPriceStation[] = [];
+
     stations.forEach((station) => {
-      // Skip stations already matched exactly
-      if (exactMatches.some((match) => match.id === station.id)) {
-        return;
-      }
+      // Apply price validity adjustment to the base confidence
+      const confidence = adjustConfidenceForInvalidPrice(baseConfidence, price);
 
-      let confidence = calculatePriceStationMatchConfidence(price, station);
+      matches.push({ price, station, confidence });
+    });
 
-      // Apply small penalty for zero prices
-      if (!isValidPrice(price.common_price)) {
-        confidence *= 0.9; // 10% penalty (keep it minor)
-      }
+    return matches;
+  },
 
-      if (isPriceStationMatchValid(confidence)) {
-        stationMatches.push({
-          price,
-          station,
-          confidence,
-        });
+  /**
+   * Get fuzzy matches between price and stations
+   */
+  getFuzzyMatchingStations(
+    price: FuelPrice,
+    stations: GasStation[],
+    alreadyMatched: MatchedPriceStation[]
+  ): MatchedPriceStation[] {
+    // Create a set of already matched station IDs
+    const matchedIds = this.extractMatchedStationIds(alreadyMatched);
+
+    // Get stations not already matched
+    const unmatchedStations = this.filterUnmatchedStations(
+      stations,
+      matchedIds
+    );
+
+    // Find matching stations from the unmatched ones
+    return this.findFuzzyMatches(price, unmatchedStations);
+  },
+
+  /**
+   * Extract the IDs of stations that have already been matched
+   */
+  extractMatchedStationIds(matches: MatchedPriceStation[]): Set<string> {
+    return new Set(matches.map((match) => match.station.id));
+  },
+
+  /**
+   * Filter out stations that have already been matched
+   */
+  filterUnmatchedStations(
+    stations: GasStation[],
+    matchedIds: Set<string>
+  ): GasStation[] {
+    return stations.filter((station) => !matchedIds.has(station.id));
+  },
+
+  /**
+   * Find stations with fuzzy matching over a confidence threshold
+   */
+  findFuzzyMatches(
+    price: FuelPrice,
+    stations: GasStation[]
+  ): MatchedPriceStation[] {
+    const matches: MatchedPriceStation[] = [];
+
+    stations.forEach((station) => {
+      // Calculate match confidence
+      let confidence = this.calculateMatchConfidence(price, station);
+      confidence = adjustConfidenceForInvalidPrice(confidence, price);
+
+      // Only include matches above confidence threshold
+      if (confidence >= 0.5) {
+        matches.push({ price, station, confidence });
       }
     });
 
-    // Sort by confidence with valid prices first
-    stationMatches.sort((a, b) => {
-      // First prioritize by price validity
-      const aValid = isValidPrice(a.price.common_price);
-      const bValid = isValidPrice(b.price.common_price);
-
-      if (aValid && !bValid) return -1;
-      if (!aValid && bValid) return 1;
-
-      // Then by confidence
-      return b.confidence - a.confidence;
-    });
-
-    return stationMatches;
+    return matches;
   },
 
   /**
    * Get the best price matches for a specific location
-   * Updated with fuel type normalization and deduplication
    * @param latitude Latitude coordinate
    * @param longitude Longitude coordinate
    * @param stations Nearby stations to match with prices
@@ -304,157 +395,33 @@ export const PriceStationConnector = {
   ): Promise<Record<string, PriceMatchResult[]>> {
     try {
       // Get latest week
-      const { data: latestWeek } = await supabase
-        .from('fuel_prices')
-        .select('week_of')
-        .order('week_of', { ascending: false })
-        .limit(1)
-        .single();
-
+      const latestWeek = await getLatestWeek();
       if (!latestWeek) {
         return {};
       }
 
-      // Get all prices for the latest week, focusing on NCR/Metro Manila
-      const { data: prices, error } = await supabase
-        .from('fuel_prices')
-        .select('*')
-        .eq('week_of', latestWeek.week_of)
-        .or('area.eq.NCR,area.eq.Metro Manila,area.ilike.%City%');
-
-      if (error) {
-        console.error('Error fetching latest prices:', error);
+      // Get prices for NCR/Metro Manila
+      const prices = await getNCRPricesForWeek(latestWeek);
+      if (prices.length === 0) {
         return {};
       }
 
-      // Group stations by city to help with matching
-      const stationsByCity: Record<string, GasStation[]> = {};
-      stations.forEach((station) => {
-        const city = normalizeCityName(station.city);
-        if (!stationsByCity[city]) {
-          stationsByCity[city] = [];
-        }
-        stationsByCity[city].push(station);
-      });
+      // Group stations by city for efficient lookup
+      const stationsByCity = groupStationsByCity(stations);
 
-      // Group by normalized fuel type and find best matches
-      const normalizedPricesByFuelType: Record<string, PriceMatchResult[]> = {};
+      // Process prices and match with stations
+      const normalizedPricesByFuelType = await this.processPricesForLocation(
+        prices,
+        stations,
+        stationsByCity
+      );
 
-      // Process all available prices
-      for (const price of prices) {
-        // Normalize the fuel type
-        const normalizedType = normalizeFuelType(price.fuel_type);
-
-        if (!normalizedPricesByFuelType[normalizedType]) {
-          normalizedPricesByFuelType[normalizedType] = [];
-        }
-
-        // Find best matching station
-        let bestMatch: MatchedPriceStation | null = null;
-        let bestConfidence = 0;
-
-        // Try exact city match first
-        const cityStations =
-          stationsByCity[normalizeCityName(price.area)] || [];
-        for (const station of cityStations) {
-          const confidence = calculatePriceStationMatchConfidence(
-            price,
-            station
-          );
-          if (confidence > bestConfidence) {
-            bestConfidence = confidence;
-            bestMatch = { price, station, confidence };
-          }
-        }
-
-        // If no good match in exact city, try all stations
-        if (bestConfidence < 0.7) {
-          for (const station of stations) {
-            // Skip stations we already checked
-            if (cityStations.includes(station)) continue;
-
-            const confidence = calculatePriceStationMatchConfidence(
-              price,
-              station
-            );
-            if (confidence > bestConfidence) {
-              bestConfidence = confidence;
-              bestMatch = { price, station, confidence };
-            }
-          }
-        }
-
-        // Apply small penalty for zero prices
-        if (!isValidPrice(price.common_price)) {
-          bestConfidence *= 0.9; // 10% penalty (keep it minor)
-        }
-
-        // Add the result
-        if (bestMatch && bestConfidence >= 0.5) {
-          normalizedPricesByFuelType[normalizedType].push({
-            price,
-            stationId: bestMatch.station.id,
-            stationName: bestMatch.station.name,
-            matchConfidence: bestConfidence,
-            confidenceLevel: getConfidenceLevel(bestConfidence),
-          });
-        } else {
-          // Include price without station match
-          // Apply a light penalty for zero prices with no station match
-          let confidence = 0.3;
-          if (!isValidPrice(price.common_price)) {
-            confidence *= 0.9; // 10% penalty
-          }
-
-          normalizedPricesByFuelType[normalizedType].push({
-            price,
-            matchConfidence: confidence,
-            confidenceLevel: 'Low',
-          });
-        }
-      }
-
-      // For each normalized fuel type, deduplicate and sort the matches
+      // Process each fuel type to limit results
       const bestPricesByFuelType: Record<string, PriceMatchResult[]> = {};
 
       Object.entries(normalizedPricesByFuelType).forEach(
         ([fuelType, matches]) => {
-          // Sort the matches for this fuel type
-          matches.sort((a, b) => {
-            // First prioritize valid prices
-            const aValid = isValidPrice(a.price.common_price);
-            const bValid = isValidPrice(b.price.common_price);
-
-            if (aValid && !bValid) return -1;
-            if (!aValid && bValid) return 1;
-
-            // For valid prices, sort by price value
-            if (aValid && bValid) {
-              return a.price.common_price - b.price.common_price;
-            }
-
-            // For invalid prices, sort by match confidence
-            return b.matchConfidence - a.matchConfidence;
-          });
-
-          // If we have enough valid matches, limit results more strictly
-          // Otherwise include more stations even without price data
-          const validMatches = matches.filter((m) =>
-            isValidPrice(m.price.common_price)
-          );
-          let resultsLimit = 5;
-
-          if (validMatches.length >= 3 || matches.length <= 5) {
-            bestPricesByFuelType[fuelType] = matches.slice(0, 5);
-          } else {
-            // Include all valid matches plus some invalid ones to reach 5 total
-            bestPricesByFuelType[fuelType] = [
-              ...validMatches,
-              ...matches
-                .filter((m) => !isValidPrice(m.price.common_price))
-                .slice(0, 5 - validMatches.length),
-            ];
-          }
+          bestPricesByFuelType[fuelType] = processMatchesForFuelType(matches);
 
           console.log(
             `Normalized ${fuelType}: ${matches.length} matches → ${bestPricesByFuelType[fuelType].length} results`
@@ -470,8 +437,94 @@ export const PriceStationConnector = {
   },
 
   /**
-   * Enhanced function to match all prices with their best station matches
-   * Updated to use normalized fuel types for deduplication
+   * Process prices for a location and match with stations
+   */
+  async processPricesForLocation(
+    prices: FuelPrice[],
+    stations: GasStation[],
+    stationsByCity: Record<string, GasStation[]>
+  ): Promise<Record<string, PriceMatchResult[]>> {
+    // Group prices by fuel type first
+    const pricesByFuelType = groupPricesByNormalizedType(prices);
+
+    // Process each fuel type group
+    const normalizedPricesByFuelType: Record<string, PriceMatchResult[]> = {};
+
+    // Process each fuel type
+    for (const [fuelType, fuelPrices] of Object.entries(pricesByFuelType)) {
+      normalizedPricesByFuelType[fuelType] = this.processOneFuelType(
+        fuelPrices,
+        stations,
+        stationsByCity
+      );
+    }
+
+    return normalizedPricesByFuelType;
+  },
+
+  /**
+   * Process prices for a single fuel type
+   */
+  processOneFuelType(
+    prices: FuelPrice[],
+    stations: GasStation[],
+    stationsByCity: Record<string, GasStation[]>
+  ): PriceMatchResult[] {
+    const results: PriceMatchResult[] = [];
+
+    // Process each price in this fuel type
+    prices.forEach((price) => {
+      // Find best matching station
+      const { station, confidence } = findBestMatchingStation(
+        price,
+        stations,
+        stationsByCity
+      );
+
+      if (station && confidence >= 0.5) {
+        // Add with station match
+        results.push(this.createMatchWithStation(price, station, confidence));
+      } else {
+        // Include price without station match
+        results.push(this.createMatchWithoutStation(price));
+      }
+    });
+
+    return results;
+  },
+
+  /**
+   * Create a match result with a station
+   */
+  createMatchWithStation(
+    price: FuelPrice,
+    station: GasStation,
+    confidence: number
+  ): PriceMatchResult {
+    return {
+      price,
+      stationId: station.id,
+      stationName: station.name,
+      matchConfidence: confidence,
+      confidenceLevel: getConfidenceLevel(confidence),
+    };
+  },
+
+  /**
+   * Create a match result without a station
+   */
+  createMatchWithoutStation(price: FuelPrice): PriceMatchResult {
+    const noMatchConfidence = adjustConfidenceForInvalidPrice(0.3, price);
+
+    return {
+      price,
+      matchConfidence: noMatchConfidence,
+      confidenceLevel: 'Low',
+    };
+  },
+
+  /**
+   * Match all prices with their best station matches
    * @param prices Array of fuel prices
    * @param stations Array of gas stations
    * @returns Object with fuel types as keys and arrays of price-station matches as values
@@ -484,121 +537,109 @@ export const PriceStationConnector = {
     const result: Record<string, MatchedPriceStation[]> = {};
 
     // Group stations by brand and city for quicker lookup
-    const stationMap: Record<string, GasStation[]> = {};
+    const stationMap = groupStationsByBrandAndCity(stations);
 
-    stations.forEach((station) => {
-      const normalizedBrand = normalizeBrandName(station.brand);
-      const normalizedCity = normalizeCityName(station.city);
-      const key = `${normalizedBrand}_${normalizedCity}`;
-
-      if (!stationMap[key]) {
-        stationMap[key] = [];
-      }
-
-      stationMap[key].push(station);
-    });
-
-    // Process each price and organize by normalized fuel type
+    // Process each price
     prices.forEach((price) => {
-      const normalizedType = normalizeFuelType(price.fuel_type);
-
-      if (!result[normalizedType]) {
-        result[normalizedType] = [];
-      }
-
-      // Try direct matching first
-      const normalizedBrand = normalizeBrandName(price.brand);
-      const normalizedArea = price.area.toLowerCase();
-      const key = `${normalizedBrand}_${normalizedArea}`;
-
-      const directMatches = stationMap[key] || [];
-
-      if (directMatches.length > 0) {
-        // Add direct matches with high confidence
-        directMatches.forEach((station) => {
-          // Calculate confidence with small adjustment for zero prices
-          let confidence = 0.95; // Base high confidence
-          if (!isValidPrice(price.common_price)) {
-            confidence *= 0.9; // 10% penalty (keep it minor)
-          }
-
-          result[normalizedType].push({
-            price,
-            station,
-            confidence,
-          });
-        });
-      } else {
-        // Fall back to fuzzy matching
-        const fuzzyMatches = this.findMatchingStations(price, stations);
-
-        if (fuzzyMatches.length > 0) {
-          result[normalizedType].push(...fuzzyMatches);
-        } else {
-          // If no station matches, still include the price without a station
-          // With a small penalty for zero prices
-          let confidence = 0.1;
-          if (!isValidPrice(price.common_price)) {
-            confidence *= 0.9; // 10% penalty
-          }
-
-          result[normalizedType].push({
-            price,
-            station: null as any, // Will be filtered out later where needed
-            confidence,
-          });
-        }
-      }
+      // Process this price
+      this.processOnePrice(price, stations, stationMap, result);
     });
 
-    // Sort and deduplicate each fuel type's results
+    // Process each fuel type group
     Object.keys(result).forEach((fuelType) => {
       // First sort by validity and confidence
-      result[fuelType].sort((a, b) => {
-        // First prioritize valid prices
-        const aValid = isValidPrice(a.price.common_price);
-        const bValid = isValidPrice(b.price.common_price);
+      result[fuelType] = sortMatchedStations(result[fuelType]);
 
-        if (aValid && !bValid) return -1;
-        if (!aValid && bValid) return 1;
-
-        // For valid prices, sort by price value
-        if (aValid && bValid) {
-          return a.price.common_price - b.price.common_price;
-        }
-
-        // For invalid prices, sort by confidence
-        return b.confidence - a.confidence;
-      });
-
-      // Then deduplicate by station to avoid showing multiple prices for the same station
-      if (result[fuelType].length > 0) {
-        const stationIds = new Set<string>();
-        const dedupedMatches: MatchedPriceStation[] = [];
-
-        result[fuelType].forEach((match) => {
-          if (match.station) {
-            // Only add if we haven't seen this station already
-            if (!stationIds.has(match.station.id)) {
-              stationIds.add(match.station.id);
-              dedupedMatches.push(match);
-            }
-          } else {
-            // Always add entries that don't have stations
-            dedupedMatches.push(match);
-          }
-        });
-
-        result[fuelType] = dedupedMatches;
-      }
+      // Then deduplicate by station
+      result[fuelType] = deduplicateByStation(result[fuelType]);
     });
 
     return result;
   },
 
   /**
+   * Process a single price for matching
+   */
+  processOnePrice(
+    price: FuelPrice,
+    stations: GasStation[],
+    stationMap: Record<string, GasStation[]>,
+    resultMap: Record<string, MatchedPriceStation[]>
+  ): void {
+    // Get normalized values
+    const normalizedType = normalizeFuelType(price.fuel_type);
+    const normalizedBrand = price.brand.toLowerCase();
+    const normalizedArea = price.area.toLowerCase();
+
+    // Make sure the array exists
+    if (!resultMap[normalizedType]) {
+      resultMap[normalizedType] = [];
+    }
+
+    // Get result array for this fuel type
+    const resultArray = resultMap[normalizedType];
+
+    // Try direct matching first
+    const key = `${normalizedBrand}_${normalizedArea}`;
+    const directMatches = stationMap[key] || [];
+
+    if (directMatches.length > 0) {
+      // Process direct matches
+      this.processDirectMatches(price, directMatches, resultArray);
+    } else {
+      // Fall back to fuzzy matching
+      this.processFallbackMatches(price, stations, resultArray);
+    }
+  },
+
+  /**
+   * Process direct matches for a price
+   */
+  processDirectMatches(
+    price: FuelPrice,
+    directMatches: GasStation[],
+    resultArray: MatchedPriceStation[]
+  ): void {
+    directMatches.forEach((station) => {
+      // Calculate confidence with small adjustment for zero prices
+      let confidence = 0.95; // Base high confidence
+      confidence = adjustConfidenceForInvalidPrice(confidence, price);
+
+      resultArray.push({
+        price,
+        station,
+        confidence,
+      });
+    });
+  },
+
+  /**
+   * Process fallback matches for a price when no direct matches found
+   */
+  processFallbackMatches(
+    price: FuelPrice,
+    stations: GasStation[],
+    resultArray: MatchedPriceStation[]
+  ): void {
+    const fuzzyMatches = this.findMatchingStations(price, stations);
+
+    if (fuzzyMatches.length > 0) {
+      resultArray.push(...fuzzyMatches);
+    } else {
+      // If no station matches, still include the price without a station
+      let confidence = 0.1;
+      confidence = adjustConfidenceForInvalidPrice(confidence, price);
+
+      resultArray.push({
+        price,
+        station: null as any, // Will be filtered out later where needed
+        confidence,
+      });
+    }
+  },
+
+  /**
    * Get price history for a specific area and fuel type
-   * Updated to use normalized fuel types
    * @param area Area name
    * @param fuelType Fuel type
    * @param weeks Number of weeks to include
@@ -613,68 +654,30 @@ export const PriceStationConnector = {
       // Normalize the fuel type
       const normalizedType = normalizeFuelType(fuelType);
 
-      // Get prices for the specified period, using a broader match for fuel type
-      const { data, error } = await supabase
-        .from('fuel_prices')
-        .select('*')
-        .or(`fuel_type.ilike.%${fuelType}%,fuel_type.ilike.%${normalizedType}%`)
-        .or(`area.eq.${area},area.eq.NCR,area.eq.Metro Manila`)
-        .order('week_of', { ascending: false })
-        .limit(weeks);
+      // Get historical price data
+      const priceData = await getHistoricalPrices(
+        area,
+        fuelType,
+        normalizedType,
+        weeks
+      );
 
-      if (error) {
-        console.error('Error fetching price history:', error);
+      if (priceData.length === 0) {
         return [];
       }
 
-      // Group prices by week to deduplicate and get the best price for each week
-      const pricesByWeek = new Map<string, FuelPrice[]>();
+      // Group prices by week for processing
+      const pricesByWeek = groupPricesByWeek(priceData);
 
-      (data || []).forEach((price) => {
-        const weekKey = price.week_of;
-        if (!pricesByWeek.has(weekKey)) {
-          pricesByWeek.set(weekKey, []);
-        }
-        pricesByWeek.get(weekKey)!.push(price);
-      });
-
-      // For each week, pick the best matching price
-      const results: FuelPrice[] = [];
-
-      pricesByWeek.forEach((weekPrices, week) => {
-        // First pick by normalized fuel type
-        const matchingPrices = weekPrices.filter(
-          (p) => normalizeFuelType(p.fuel_type) === normalizedType
-        );
-
-        if (matchingPrices.length > 0) {
-          // Take the first price with valid data
-          const validPrices = matchingPrices.filter((p) =>
-            isValidPrice(p.common_price)
-          );
-
-          if (validPrices.length > 0) {
-            // Add the one with the most specific area match
-            const exactAreaMatch = validPrices.find((p) => p.area === area);
-            if (exactAreaMatch) {
-              results.push(exactAreaMatch);
-            } else {
-              // Otherwise take the first valid price
-              results.push(validPrices[0]);
-            }
-          } else {
-            // No valid prices, just take the first one
-            results.push(matchingPrices[0]);
-          }
-        }
-      });
+      // Find best price for each week
+      const results = findBestPriceForEachWeek(
+        pricesByWeek,
+        normalizedType,
+        area
+      );
 
       // Sort by week descending
-      results.sort((a, b) => {
-        return new Date(b.week_of).getTime() - new Date(a.week_of).getTime();
-      });
-
-      return results;
+      return sortPricesByWeekDescending(results);
     } catch (error) {
       console.error('Error in getPriceHistory:', error);
       return [];
