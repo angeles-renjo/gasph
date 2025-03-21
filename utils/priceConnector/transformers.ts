@@ -3,7 +3,7 @@
 
 import { FuelPrice } from '@/core/models/FuelPrice';
 import { GasStation } from '@/core/models/GasStation';
-import { normalizeCityName } from '@/utils/g';
+import { normalizeCityName } from '@/utils/areaMapping';
 import { normalizeFuelType, isValidPrice } from '@/utils/formatters';
 import { normalizeBrandName } from '../brandNormalization';
 
