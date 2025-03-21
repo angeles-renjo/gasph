@@ -6,6 +6,7 @@ import { GasStation } from '@/core/models/GasStation';
 import { Coordinates } from '@/core/interfaces/ILocationService';
 import { PriceStationConnector } from '@/utils/priceStationConnector';
 import { isValidPrice } from '@/utils/formatters';
+import { SearchRadius } from '@/core/services/StationService'; // Add this import
 
 // Default Manila coordinates
 const DEFAULT_COORDINATES = {
@@ -77,16 +78,18 @@ export function useBestPrices() {
         console.log('Fetching nearby stations...');
 
         // Get stations within a reasonable radius
-        const radius = 10; // 10km radius to get enough stations
+        const radius = SearchRadius.createSafe(10); // 10km radius with safe creation
         const stations = await stationService.getStationsNearby(
-          userLocation.latitude,
-          userLocation.longitude,
+          {
+            latitude: userLocation.latitude,
+            longitude: userLocation.longitude,
+          },
           radius
         );
 
         if (isMounted) {
           console.log(
-            `Found ${stations.length} nearby stations within ${radius}km`
+            `Found ${stations.length} nearby stations within ${radius.kilometers}km`
           );
           setNearbyStations(stations);
         }
