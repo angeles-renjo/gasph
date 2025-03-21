@@ -1,5 +1,4 @@
 // utils/brandNormalization.ts
-// Utility for standardizing brand names and calculating brand similarities
 
 /**
  * Brand aliases for common gas station brands
@@ -21,6 +20,24 @@ export const BRAND_ALIASES: Record<string, string[]> = {
   'Insular Oil': ['Insular'],
 };
 
+// Precompute alias map and sorted keys
+const aliasToStandard: Record<string, string> = {};
+const standardBrands = new Set<string>();
+
+for (const [standard, aliases] of Object.entries(BRAND_ALIASES)) {
+  const lowerStandard = standard.toLowerCase();
+  aliasToStandard[lowerStandard] = standard;
+  standardBrands.add(lowerStandard);
+  for (const alias of aliases) {
+    const lowerAlias = alias.toLowerCase();
+    aliasToStandard[lowerAlias] = standard;
+  }
+}
+
+const sortedKeys = Object.keys(aliasToStandard).sort(
+  (a, b) => b.length - a.length
+);
+
 /**
  * Normalize brand name to standard form
  * @param brandName Input brand name
@@ -28,42 +45,16 @@ export const BRAND_ALIASES: Record<string, string[]> = {
  */
 export function normalizeBrandName(brandName: string): string {
   if (!brandName) return '';
-
   const input = brandName.trim().toLowerCase();
 
-  // Check direct match with standard names
-  for (const [standard, aliases] of Object.entries(BRAND_ALIASES)) {
-    if (standard.toLowerCase() === input) {
-      return standard;
-    }
+  if (aliasToStandard[input]) return aliasToStandard[input];
 
-    // Check if input matches any alias
-    if (aliases.some((alias) => alias.toLowerCase() === input)) {
-      return standard;
+  for (const key of sortedKeys) {
+    if (new RegExp(`\\b${key}\\b`, 'i').test(input)) {
+      return aliasToStandard[key];
     }
   }
 
-  // Check for partial matches (e.g., if input contains standard name or alias)
-  for (const [standard, aliases] of Object.entries(BRAND_ALIASES)) {
-    if (input.includes(standard.toLowerCase())) {
-      return standard;
-    }
-
-    if (aliases.some((alias) => input.includes(alias.toLowerCase()))) {
-      return standard;
-    }
-
-    // Check if standard or alias contains input (for short forms)
-    if (
-      input.length > 3 &&
-      (standard.toLowerCase().includes(input) ||
-        aliases.some((alias) => alias.toLowerCase().includes(input)))
-    ) {
-      return standard;
-    }
-  }
-
-  // If no match found, return original with first letter capitalized
   return brandName.charAt(0).toUpperCase() + brandName.slice(1);
 }
 
@@ -79,48 +70,21 @@ export function calculateBrandSimilarity(
 ): number {
   if (!brand1 || !brand2) return 0;
 
-  const norm1 = brand1.toLowerCase().trim();
-  const norm2 = brand2.toLowerCase().trim();
+  const norm1 = normalizeBrandName(brand1);
+  const norm2 = normalizeBrandName(brand2);
 
-  // Exact match
   if (norm1 === norm2) return 1;
 
-  // Check normalized versions
-  const normalized1 = normalizeBrandName(brand1).toLowerCase();
-  const normalized2 = normalizeBrandName(brand2).toLowerCase();
+  const lowerNorm1 = norm1.toLowerCase();
+  const lowerNorm2 = norm2.toLowerCase();
 
-  if (normalized1 === normalized2) return 1;
+  if (standardBrands.has(lowerNorm1) && standardBrands.has(lowerNorm2))
+    return 0;
 
-  // Contains check
-  if (norm1.includes(norm2) || norm2.includes(norm1)) return 0.9;
-  if (normalized1.includes(normalized2) || normalized2.includes(normalized1))
-    return 0.8;
+  const words1 = new Set(lowerNorm1.split(/\s+/));
+  const words2 = new Set(lowerNorm2.split(/\s+/));
+  const intersection = new Set([...words1].filter((x) => words2.has(x)));
+  const union = new Set([...words1, ...words2]);
 
-  // Word matching (check if any words match)
-  const words1 = norm1.split(/\s+/);
-  const words2 = norm2.split(/\s+/);
-
-  const commonWords = words1.filter(
-    (word) => word.length > 2 && words2.includes(word)
-  );
-
-  if (commonWords.length > 0) {
-    return (
-      0.5 + (0.3 * commonWords.length) / Math.max(words1.length, words2.length)
-    );
-  }
-
-  // Letter similarity (basic implementation)
-  let matchingChars = 0;
-  const minLength = Math.min(norm1.length, norm2.length);
-
-  for (let i = 0; i < minLength; i++) {
-    if (norm1[i] === norm2[i]) matchingChars++;
-  }
-
-  if (matchingChars > 3) {
-    return 0.3 + (0.2 * matchingChars) / minLength;
-  }
-
-  return 0.1; // Very low similarity
+  return union.size === 0 ? 0 : intersection.size / union.size;
 }
