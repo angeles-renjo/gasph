@@ -9,49 +9,107 @@ import {
   normalizeCityName,
 } from '@/utils/cityProximity';
 
+/**
+ * SearchRadius domain class representing a search radius with validation
+ */
+export class SearchRadius {
+  private readonly value: number;
+
+  constructor(radiusKm: number) {
+    // Validate radius is positive
+    if (radiusKm <= 0) {
+      throw new Error('Search radius must be positive');
+    }
+    this.value = radiusKm;
+  }
+
+  /**
+   * Get the radius value in kilometers
+   */
+  get kilometers(): number {
+    return this.value;
+  }
+
+  /**
+   * Create a SearchRadius safely with fallback to default
+   * @param radiusKm Radius in kilometers
+   * @param defaultRadius Default radius to use if input is invalid
+   * @returns A valid SearchRadius instance
+   */
+  static createSafe(radiusKm: number, defaultRadius: number = 5): SearchRadius {
+    try {
+      return new SearchRadius(radiusKm);
+    } catch {
+      return new SearchRadius(defaultRadius);
+    }
+  }
+}
+
 export class StationService extends BaseService<GasStation> {
   constructor() {
     super('gas_stations');
   }
 
+  /**
+   * Get stations by brand
+   * @param brand The brand name to search for
+   * @returns Array of gas stations matching the brand
+   */
   async getStationsByBrand(brand: string): Promise<GasStation[]> {
-    const { data, error } = await supabase
-      .from(this.tableName)
-      .select('*')
-      .eq('brand', brand);
-
-    if (error) {
-      console.error('Error fetching gas stations by brand:', error);
-      throw new Error('Failed to fetch gas stations by brand');
-    }
-
-    return this.normalizeStations(data || []);
+    return this.executeQuery(
+      supabase.from(this.tableName).select('*').eq('brand', brand),
+      'Error fetching gas stations by brand:'
+    );
   }
 
+  /**
+   * Get stations by city
+   * @param city The city name to search for
+   * @returns Array of gas stations in the specified city
+   */
   async getStationsByCity(city: string): Promise<GasStation[]> {
     const normalizedCity = normalizeCityName(city);
 
-    const { data, error } = await supabase
-      .from(this.tableName)
-      .select('*')
-      .eq('city', normalizedCity);
-
-    if (error) {
-      console.error('Error fetching gas stations by city:', error);
-      throw new Error('Failed to fetch gas stations by city');
-    }
-
-    return this.normalizeStations(data || []);
+    return this.executeQuery(
+      supabase.from(this.tableName).select('*').eq('city', normalizedCity),
+      'Error fetching gas stations by city:'
+    );
   }
 
+  /**
+   * Search for stations based on a query string
+   * @param query The search query
+   * @returns Array of gas stations matching the query
+   */
+  async searchStations(query: string): Promise<GasStation[]> {
+    return this.executeQuery(
+      supabase
+        .from(this.tableName)
+        .select('*')
+        .or(`name.ilike.%${query}%,address.ilike.%${query}%`),
+      'Error searching gas stations:'
+    );
+  }
+
+  /**
+   * Get stations near a location within a specific radius
+   * @param location Coordinates of the center point
+   * @param radius Search radius
+   * @returns Array of gas stations within the radius, sorted by distance
+   */
   async getStationsNearby(
-    lat: number,
-    lon: number,
-    radiusKm: number
+    location: Coordinates,
+    radius: SearchRadius
   ): Promise<GasStation[]> {
     try {
+      const radiusKm = radius.kilometers;
+
       // Find nearby cities within the radius
-      const nearbyCities = getCitiesWithinRadius(lat, lon, radiusKm);
+      const nearbyCities = getCitiesWithinRadius(
+        location.latitude,
+        location.longitude,
+        radiusKm
+      );
 
       // If no cities found, return empty array
       if (nearbyCities.length === 0) {
@@ -83,7 +141,7 @@ export class StationService extends BaseService<GasStation> {
         (station) => ({
           ...station,
           // Calculate actual distance from user location
-          distance: this.calculateStationDistance(station, lat, lon),
+          distance: this.calculateDistance(station.coordinates, location),
         })
       );
 
@@ -98,25 +156,56 @@ export class StationService extends BaseService<GasStation> {
     }
   }
 
-  async searchStations(query: string): Promise<GasStation[]> {
-    const { data, error } = await supabase
-      .from(this.tableName)
-      .select('*')
-      .or(`name.ilike.%${query}%,address.ilike.%${query}%`);
+  /**
+   * For backward compatibility with existing code
+   * @deprecated Use the version with Coordinates and SearchRadius instead
+   */
+  async getStationsNearbyLegacy(
+    lat: number,
+    lon: number,
+    radiusKm: number
+  ): Promise<GasStation[]> {
+    const location: Coordinates = { latitude: lat, longitude: lon };
+    const radius = SearchRadius.createSafe(radiusKm);
+    return this.getStationsNearby(location, radius);
+  }
+
+  // Private helper methods
+
+  /**
+   * Execute a query and process the results
+   * @param query The Supabase query to execute
+   * @param errorMessage Error message prefix for logging
+   * @returns Normalized station data
+   */
+  private async executeQuery(
+    query: any,
+    errorMessage: string
+  ): Promise<GasStation[]> {
+    const { data, error } = await query;
 
     if (error) {
-      console.error('Error searching gas stations:', error);
-      throw new Error('Failed to search gas stations');
+      console.error(errorMessage, error);
+      throw new Error(errorMessage.replace(':', ''));
     }
 
     return this.normalizeStations(data || []);
   }
 
-  // Private helper methods
+  /**
+   * Normalize an array of station data
+   * @param stations Raw station data
+   * @returns Array of normalized GasStation objects
+   */
   private normalizeStations(stations: any[]): GasStation[] {
     return stations.map((station) => this.normalizeStation(station));
   }
 
+  /**
+   * Normalize a single station object
+   * @param station Raw station data
+   * @returns Normalized GasStation object
+   */
   private normalizeStation(station: any): GasStation {
     return {
       ...station,
@@ -128,8 +217,12 @@ export class StationService extends BaseService<GasStation> {
     };
   }
 
+  /**
+   * Get coordinates for a station
+   * @param station Station data
+   * @returns Coordinates object
+   */
   private getStationCoordinates(station: any): Coordinates {
-    // Implementation similar to previous version but using cityProximity
     const nearestCity = findNearestCity(
       station.coordinates?.latitude,
       station.coordinates?.longitude
@@ -137,21 +230,22 @@ export class StationService extends BaseService<GasStation> {
     return nearestCity.coordinates;
   }
 
-  private calculateStationDistance(
-    station: GasStation,
-    userLat: number,
-    userLon: number
-  ): number {
-    const stationCoords = station.coordinates;
+  /**
+   * Calculate distance between two coordinate points
+   * @param from Starting coordinates
+   * @param to Ending coordinates
+   * @returns Distance in kilometers
+   */
+  private calculateDistance(from: Coordinates, to: Coordinates): number {
     const R = 6371; // Earth's radius in kilometers
 
-    const dLat = this.toRadians(stationCoords.latitude - userLat);
-    const dLon = this.toRadians(stationCoords.longitude - userLon);
+    const dLat = this.toRadians(to.latitude - from.latitude);
+    const dLon = this.toRadians(to.longitude - from.longitude);
 
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(this.toRadians(userLat)) *
-        Math.cos(this.toRadians(stationCoords.latitude)) *
+      Math.cos(this.toRadians(from.latitude)) *
+        Math.cos(this.toRadians(to.latitude)) *
         Math.sin(dLon / 2) *
         Math.sin(dLon / 2);
 
@@ -159,42 +253,73 @@ export class StationService extends BaseService<GasStation> {
     return R * c;
   }
 
+  /**
+   * Convert degrees to radians
+   * @param degrees Angle in degrees
+   * @returns Angle in radians
+   */
   private toRadians(degrees: number): number {
     return degrees * (Math.PI / 180);
   }
 
+  /**
+   * Parse amenities data from various formats
+   * @param amenitiesData Raw amenities data
+   * @returns Array of amenity strings
+   */
   private parseAmenities(amenitiesData: any): string[] {
-    try {
-      if (Array.isArray(amenitiesData)) {
-        return amenitiesData;
-      } else if (typeof amenitiesData === 'string') {
-        // Try as JSON
-        if (amenitiesData.startsWith('[') && amenitiesData.endsWith(']')) {
-          try {
-            return JSON.parse(amenitiesData);
-          } catch (e) {
-            // If can't parse as JSON, continue
-          }
-        }
-
-        // Try as comma-separated
-        if (amenitiesData.includes(',')) {
-          return amenitiesData.split(',').map((item) => item.trim());
-        }
-
-        // Single value
-        if (amenitiesData.trim()) {
-          return [amenitiesData.trim()];
-        }
-      }
-
-      return [];
-    } catch (e) {
+    if (!amenitiesData) {
       return [];
     }
+
+    // Handle array data type
+    if (Array.isArray(amenitiesData)) {
+      return amenitiesData;
+    }
+
+    // Handle string data type
+    if (typeof amenitiesData === 'string') {
+      return this.parseAmenitiesFromString(amenitiesData);
+    }
+
+    return [];
   }
 
-  // Parse operating hours with proper typing
+  /**
+   * Parse amenities from string format
+   * @param amenitiesString Amenities as string
+   * @returns Array of amenity strings
+   */
+  private parseAmenitiesFromString(amenitiesString: string): string[] {
+    const trimmed = amenitiesString.trim();
+
+    if (!trimmed) {
+      return [];
+    }
+
+    // Try parsing as JSON
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+        // Continue with other parsing methods if JSON parsing fails
+      }
+    }
+
+    // Try as comma-separated values
+    if (trimmed.includes(',')) {
+      return trimmed.split(',').map((item) => item.trim());
+    }
+
+    // Single value
+    return [trimmed];
+  }
+
+  /**
+   * Parse operating hours with type safety
+   * @param hoursData Operating hours data
+   * @returns Structured operating hours object
+   */
   private parseOperatingHours(hoursData: any): GasStation['operating_hours'] {
     const defaultHours = {
       open: '09:00',
@@ -209,7 +334,7 @@ export class StationService extends BaseService<GasStation> {
       if (typeof hours === 'string') {
         try {
           hours = JSON.parse(hours);
-        } catch (e) {
+        } catch {
           return defaultHours;
         }
       }
@@ -226,7 +351,7 @@ export class StationService extends BaseService<GasStation> {
           ? hours.days_open
           : defaultHours.days_open,
       };
-    } catch (e) {
+    } catch {
       return defaultHours;
     }
   }
