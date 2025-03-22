@@ -8,7 +8,7 @@ import {
   RefreshControl,
   TextInput,
 } from 'react-native';
-import { useNearbyStations } from '@/hooks/useStationService';
+import { useLocationStations } from '@/hooks/useLocationStations';
 import { StationCard } from '@/components/station/StationCard';
 import { LoadingIndicator } from '@/components/common/LoadingIndicator';
 import { ErrorDisplay } from '@/components/common/ErrorDisplay';
@@ -21,13 +21,20 @@ import { exploreScreen as styles } from '@/styles';
 export default function ExploreScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const { stations, loading, error, refreshStations } = useNearbyStations(5); // 5 km radius
+
+  const { stations, location, loading, error, refreshStations } =
+    useLocationStations(5); // 5 km radius
 
   // Pull to refresh function
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refreshStations();
-    setRefreshing(false);
+    try {
+      await refreshStations();
+    } catch (refreshError) {
+      console.error('Refresh error:', refreshError);
+    } finally {
+      setRefreshing(false);
+    }
   }, [refreshStations]);
 
   // Improved search function that checks multiple fields
@@ -67,7 +74,7 @@ export default function ExploreScreen() {
     if (error) {
       return (
         <ErrorDisplay
-          message='Failed to load nearby stations. Please check your location permissions and try again.'
+          message={`Failed to load nearby stations: ${error.message}`}
           onRetry={onRefresh}
         />
       );
