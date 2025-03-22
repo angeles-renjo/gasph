@@ -156,20 +156,6 @@ export class StationService extends BaseService<GasStation> {
     }
   }
 
-  /**
-   * For backward compatibility with existing code
-   * @deprecated Use the version with Coordinates and SearchRadius instead
-   */
-  async getStationsNearbyLegacy(
-    lat: number,
-    lon: number,
-    radiusKm: number
-  ): Promise<GasStation[]> {
-    const location: Coordinates = { latitude: lat, longitude: lon };
-    const radius = SearchRadius.createSafe(radiusKm);
-    return this.getStationsNearby(location, radius);
-  }
-
   // Private helper methods
 
   /**
