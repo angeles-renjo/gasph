@@ -32,10 +32,10 @@ export interface DoeData {
 
 export interface StationPrice {
   fuelType: string;
-  communityPrice: number;
-  reportId: string;
+  communityPrice: number | null; // Make nullable to handle both cases
+  reportId: string | null; // Make nullable for consistency
   doeData: DoeData | null;
-  verificationData: VerificationStats;
+  verificationData: VerificationStats | null; // Make nullable for when there's no community data
 }
 
 export interface IPriceReportingService {
