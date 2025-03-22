@@ -141,6 +141,7 @@ export function usePriceReporting(currentUser?: any) {
   };
 
   // Process the price data for UI display
+  // Process the price data for UI display
   const processPriceData = (
     doePrices: Record<string, any>,
     communityPrices: any[]
@@ -169,16 +170,36 @@ export function usePriceReporting(currentUser?: any) {
         // Get most recent price
         const latestPrice = pricesForType[0];
 
-        // Format time ago
-        const lastUpdatedText = formatTime(latestPrice.reported_at);
+        // Format time ago for display
+        const reportTime = new Date(latestPrice.reported_at);
+        const now = new Date();
+        const diffMinutes = Math.floor(
+          (now.getTime() - reportTime.getTime()) / (1000 * 60)
+        );
 
-        // Add to results
+        let lastUpdatedText: string;
+        if (diffMinutes < 60) {
+          lastUpdatedText = `${diffMinutes} minutes ago`;
+        } else if (diffMinutes < 24 * 60) {
+          const hours = Math.floor(diffMinutes / 60);
+          lastUpdatedText = `${hours} hour${hours > 1 ? 's' : ''} ago`;
+        } else {
+          const days = Math.floor(diffMinutes / (24 * 60));
+          lastUpdatedText = `${days} day${days > 1 ? 's' : ''} ago`;
+        }
+
+        // Add to results with properly populated community price data
         results.push({
           fuelType,
-          communityPrice: null,
-          reportId: null,
+          communityPrice: latestPrice.price, // Use actual price value
+          reportId: latestPrice.id, // Use actual report ID
           doeData: doePrices[fuelType] || null,
-          verificationData: null, // This would now be valid with our updated interface
+          verificationData: {
+            confirmedCount: latestPrice.upvotes,
+            disputedCount: latestPrice.downvotes,
+            lastUpdated: lastUpdatedText,
+            expiresAt: latestPrice.expires_at,
+          },
         });
       } else {
         // No community price, just DOE data
