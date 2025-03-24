@@ -1,83 +1,38 @@
-// hooks/useStationService.ts
-import { useState, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useServiceContext } from '@/context/ServiceContext';
 import { GasStation } from '@/core/models/GasStation';
-import {
-  performPrimarySearch,
-  performAdvancedSearch,
-} from '@/utils/stationSearchUtils';
 
-/**
- * A hook for searching stations with flexible matching
- */
-export function useStationSearch() {
+export function useStationById(id: string | string[] | undefined) {
   const { stationService } = useServiceContext();
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<GasStation[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<GasStation | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  /**
-   * Perform a search with brand+city combination fallback
-   * @param searchQuery The search query string
-   */
-  const searchStations = useCallback(
-    async (searchQuery: string) => {
-      // Early return for empty queries
-      if (!searchQuery.trim()) {
-        setResults([]);
+  useEffect(() => {
+    const fetchStation = async () => {
+      // Ensure id is a string and not undefined
+      if (!id) {
+        setLoading(false);
         return;
       }
 
+      const stationId = Array.isArray(id) ? id[0] : id;
+
       try {
         setLoading(true);
-        setError(null);
-
-        // Primary search strategy: direct search
-        const searchResults = await performPrimarySearch(
-          searchQuery,
-          stationService
-        );
-
-        // If primary search fails, try advanced matching
-        if (searchResults.length === 0) {
-          const advancedResults = await performAdvancedSearch(
-            searchQuery,
-            stationService
-          );
-          setResults(advancedResults);
-        } else {
-          setResults(searchResults);
-        }
+        const station = await stationService.findById(stationId);
+        setData(station);
       } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : 'Station search failed';
-        setError(new Error(errorMessage));
-        setResults([]);
+        setError(
+          err instanceof Error ? err : new Error('Failed to fetch station')
+        );
       } finally {
         setLoading(false);
       }
-    },
-    [stationService]
-  );
+    };
 
-  /**
-   * Update query and trigger search
-   */
-  const updateQuery = useCallback(
-    (newQuery: string) => {
-      setQuery(newQuery);
-      searchStations(newQuery);
-    },
-    [searchStations]
-  );
+    fetchStation();
+  }, [id, stationService]);
 
-  return {
-    query,
-    results,
-    loading,
-    error,
-    updateQuery,
-    searchStations,
-  };
+  return { data, loading, error };
 }
